@@ -1,0 +1,6 @@
+services:
+  pcb-quote:
+    build: .
+    ports:
+      - "8520:80"
+    restart: unless-stopped

@@ -16,66 +16,68 @@ const sections = reactive<Record<string, boolean>>({
   custom: true,
   stackup: true,
   impedance: true,
+  invoice: true,
+  delivery: true,
 });
+
+const taskId = ref('')
+
+// ==================== 校验状态 ====================
+const invalidFields = ref<Set<string>>(new Set())
+const userModified = ref<Set<string>>(new Set())
+function isInvalid(f: string): string {
+  return invalidFields.value.has(f) ? 'input-error' : ''
+}
+function clearInvalid(f: string) {
+  if (invalidFields.value.has(f)) {
+    const next = new Set(invalidFields.value)
+    next.delete(f)
+    invalidFields.value = next
+  }
+  // 用户修改过的字段标记为 user 来源
+  const mod = new Set(userModified.value)
+  mod.add(f)
+  userModified.value = mod
+}
 
 // ==================== 表单数据（V6.0 字段清单） ====================
 const form = reactive<Record<string, any>>({
-  pcbName: "",
-  pcbFile: "",
-  layerCount: 2,
-  blindVia: false,
-  pcsSizeWidth: null,
-  pcsSizeHeight: null,
-  dimensionTolerance: "+/-0.10mm",
-  quantity: 10,
-  deliveryUnit: "PCS",
-  panelTypesCount: 1,
-  setMethod: "单片无拼板",
-  clientPanelHorizontal: 1,
-  clientPanelVertical: 1,
-  setSizeWidth: null,
-  setSizeHeight: null,
-  clientPanelSeparation: "拼板&邮票孔交货",
-  acceptXOut: true,
-
-  materialType: "FR4",
-  materialTg: false,
-  halogenFree: false,
-  maxWarpage: "0.5%",
-  boardThickness: 1.6,
-  thicknessTolerance: "+/-10%",
-  outerCopperThickness: 35,
-  outerBaseCopperThickness: 18,
-  innerCopperThickness: 1,
-  minTraceWidthOuter: null,
-  minTraceSpacingOuter: null,
-  minTraceWidthInner: null,
-  minTraceSpacingInner: null,
-  minHoleSize: null,
-  holeCopperThickness: 18,
-  solderMaskColor: "绿色",
-  silkscreenColor: "白色字符",
-  surfaceFinish: "无铅喷锡",
-  enigGoldThickness: 0.05,
-  immersionGoldArea: null,
-  viaProcess: "按Gerber文件",
-  goldFingerType: "无",
-  goldFingerThickness: 0.38,
-  goldFingerChamferAngle: "30°",
-  goldFingerChamferDepth: null,
-  goldFingerChamferRemaining: null,
-
-  acceptanceStandard: "IPC 2",
-  impedanceControl: false,
-  markingRequirements: ["PCB厂家标记", "周期标记", "无铅标记"] as string[],
-  periodFormat: "WWYY",
-  testRequirements: ["飞针测试"] as string[],
-  shippingReports: ["最终产品检查报告"] as string[],
-  specialProcesses: ["不需要"] as string[],
+  pcbName: "", pcbFile: "",
+  layerCount: null, blindVia: false,
+  pcsSizeWidth: null, pcsSizeHeight: null,
+  dimensionTolerance: "", quantity: 0, deliveryUnit: "",
+  panelTypesCount: 0, setMethod: "",
+  clientPanelHorizontal: 0, clientPanelVertical: 0,
+  setSizeWidth: null, setSizeHeight: null,
+  clientPanelSeparation: "", acceptXOut: false,
+  materialType: "", materialTg: false, halogenFree: false,
+  maxWarpage: "", boardThickness: null, thicknessTolerance: "",
+  outerCopperThickness: null, outerBaseCopperThickness: null,
+  innerCopperThickness: null,
+  minTraceWidthOuter: null, minTraceSpacingOuter: null,
+  minTraceWidthInner: null, minTraceSpacingInner: null,
+  minHoleSize: null, holeCopperThickness: null,
+  solderMaskColor: "", silkscreenColor: "", surfaceFinish: "",
+  enigGoldThickness: null, immersionGoldArea: null,
+  viaProcess: "", goldFingerType: "", goldFingerThickness: null,
+  goldFingerChamferAngle: "", goldFingerChamferDepth: null, goldFingerChamferRemaining: null,
+  acceptanceStandard: "", impedanceControl: false,
+  markingRequirements: [] as string[],
+  periodFormat: "",
+  testRequirements: [] as string[],
+  shippingReports: [] as string[],
+  specialProcesses: [] as string[],
   confirmProductionFile: false,
+  invoiceType: "",
+  deliveryContact: "",
+  deliveryPhone: "",
+  deliveryAddress: "",
 });
 
 // ==================== 数据来源追踪 ====================
+const userToken = ref('')
+const userUid = ref('')
+
 const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
 
@@ -91,7 +93,8 @@ function applyFieldData(data: Record<string, any>) {
   const arrF=['markingRequirements','testRequirements','shippingReports','specialProcesses']
   for(const k of Object.keys(form)) {
     if(boolF.includes(k)) form[k]=false; else if(arrF.includes(k)) form[k]=[]
-    else if(numF.includes(k)||k==='layerCount'||k==='quantity'||k==='panelTypesCount') form[k]=0
+    else if(k==='quantity'||k==='panelTypesCount'||k==='clientPanelHorizontal'||k==='clientPanelVertical') form[k]=0
+    else if(numF.includes(k)||k==='layerCount') form[k]=null
     else if(['pcsSizeWidth','pcsSizeHeight','setSizeWidth','setSizeHeight','minHoleSize','minTraceWidthOuter','minTraceSpacingOuter','minTraceWidthInner','minTraceSpacingInner','immersionGoldArea','goldFingerChamferDepth','goldFingerChamferRemaining'].includes(k)) form[k]=null
     else form[k]=''
     fieldSource[k]=''; fieldRawData[k]=null
@@ -260,6 +263,7 @@ const opts: Record<string, string[]> = {
     "不需要",
   ],
   confirmProductionFile: [{ value: false, label: '否' }, { value: true, label: '是' }],
+  invoiceType: ["数电增值税（普通）发票", "数电增值税（专用）发票"],
 };
 
 // ==================== 条件显示 ====================
@@ -373,45 +377,218 @@ function addImpRow() {
 }
 
 // ==================== 提交 ====================
-const submitting = ref(false);
+const submitting = ref(false)
+const ordering = ref(false)
+
+function validateForm(): boolean {
+  const labelMap: Record<string, string> = {
+    pcbName: '生产型号', pcbFile: 'PCB资料', layerCount: '板子层数', blindVia: '盲埋孔',
+    pcsSizeWidth: 'PCS尺寸(水平)', pcsSizeHeight: 'PCS尺寸(垂直)',
+    dimensionTolerance: '外形公差', quantity: '板子数量', deliveryUnit: '交货单位',
+    panelTypesCount: '合拼种数', setMethod: 'Set拼板方式',
+    clientPanelHorizontal: '拼板个数(水平)', clientPanelVertical: '拼板个数(垂直)',
+    setSizeWidth: 'Set尺寸(水平)', setSizeHeight: 'Set尺寸(垂直)',
+    clientPanelSeparation: '外形要求', acceptXOut: '是否接受打叉板',
+    materialType: '板材种类', materialTg: '高TG', halogenFree: '无卤板材',
+    maxWarpage: '翘曲度', boardThickness: '成品板厚', thicknessTolerance: '板厚公差',
+    outerCopperThickness: '外层完成铜厚度', innerCopperThickness: '内层基铜厚度',
+    minTraceWidthOuter: '外层最小线宽', minTraceSpacingOuter: '外层最小间距',
+    minTraceWidthInner: '内层最小线宽', minTraceSpacingInner: '内层最小间距',
+    minHoleSize: '最小孔径', holeCopperThickness: '最小孔铜',
+    solderMaskColor: '阻焊颜色', silkscreenColor: '字符颜色',
+    surfaceFinish: '表面处理', enigGoldThickness: '最小沉金金厚',
+    immersionGoldArea: '沉金面积', viaProcess: '过孔工艺',
+    goldFingerType: '金手指类型', goldFingerThickness: '金手指金厚',
+    goldFingerChamferAngle: '倒角角度',
+    acceptanceStandard: '验收标准', impedanceControl: '阻抗控制',
+    markingRequirements: '标记要求', testRequirements: '测试要求',
+    shippingReports: '出货报告', specialProcesses: '特殊工艺',
+    confirmProductionFile: '光绘确认', periodFormat: '周期格式',
+  }
+
+  // 始终必填
+  const alwaysRequired = [
+    'pcbName', 'pcbFile', 'layerCount', 'blindVia', 'pcsSizeWidth', 'pcsSizeHeight',
+    'dimensionTolerance', 'quantity', 'deliveryUnit', 'panelTypesCount', 'setMethod',
+    'materialType', 'materialTg', 'halogenFree', 'maxWarpage', 'boardThickness',
+    'thicknessTolerance', 'outerCopperThickness', 'innerCopperThickness',
+    'minTraceWidthOuter', 'minTraceSpacingOuter', 'minHoleSize', 'holeCopperThickness',
+    'solderMaskColor', 'silkscreenColor', 'surfaceFinish', 'viaProcess', 'goldFingerType',
+    'acceptanceStandard', 'impedanceControl', 'markingRequirements',
+    'testRequirements', 'shippingReports', 'specialProcesses', 'confirmProductionFile',
+  ]
+
+  // 有条件必填
+  if (form.setMethod === '客户拼板') {
+    alwaysRequired.push('clientPanelHorizontal', 'clientPanelVertical', 'setSizeWidth', 'setSizeHeight', 'clientPanelSeparation', 'acceptXOut')
+  }
+  if (Number(form.layerCount) > 2) {
+    alwaysRequired.push('minTraceWidthInner', 'minTraceSpacingInner')
+  }
+  if (form.surfaceFinish === '沉金') {
+    alwaysRequired.push('enigGoldThickness', 'immersionGoldArea')
+  }
+  if (form.goldFingerType !== '无') {
+    alwaysRequired.push('goldFingerThickness', 'goldFingerChamferAngle')
+  }
+  if ((form.markingRequirements as string[]).includes('周期标记')) {
+    alwaysRequired.push('periodFormat')
+  }
+
+  const missing: string[] = []
+  for (const key of alwaysRequired) {
+    const v = form[key]
+    if (v === '' || v === null || v === undefined || (Array.isArray(v) && v.length === 0)) {
+      missing.push(labelMap[key] || key)
+    }
+  }
+  if (typeof form.quantity === 'number' && form.quantity < 1) {
+    missing.push('板子数量(需≥1)')
+  }
+
+  if (missing.length) {
+    invalidFields.value = new Set(missing.map(m => {
+      for (const [k, v] of Object.entries(labelMap)) { if (v === m) return k }
+      return m
+    }))
+    ElMessage.warning('请填写必填项: ' + missing.join('、'))
+    return false
+  }
+  invalidFields.value = new Set()
+  return true
+}
+
 async function submitForm() {
+  if (!validateForm()) return
+
   submitting.value = true;
-  const payload = {
-    ...form,
-    stackupTable: stackupRows.value,
-    impedanceTable: impRows.value,
-  };
+  // 构建键值对格式的 payload
+  const params: Record<string, any> = {}
+  for (const key of [
+    'pcbName','pcbFile','layerCount','blindVia','pcsSizeWidth','pcsSizeHeight',
+    'dimensionTolerance','quantity','deliveryUnit','panelTypesCount','setMethod',
+    'clientPanelHorizontal','clientPanelVertical','setSizeWidth','setSizeHeight',
+    'clientPanelSeparation','acceptXOut','materialType','materialTg','halogenFree',
+    'maxWarpage','boardThickness','thicknessTolerance','outerCopperThickness',
+    'outerBaseCopperThickness','innerCopperThickness','minTraceWidthOuter',
+    'minTraceSpacingOuter','minTraceWidthInner','minTraceSpacingInner',
+    'minHoleSize','holeCopperThickness','solderMaskColor','silkscreenColor',
+    'surfaceFinish','enigGoldThickness','immersionGoldArea','viaProcess',
+    'goldFingerType','goldFingerThickness','goldFingerChamferAngle',
+    'goldFingerChamferDepth','goldFingerChamferRemaining',
+    'acceptanceStandard','impedanceControl','markingRequirements',
+    'periodFormat','testRequirements','shippingReports','specialProcesses',
+    'confirmProductionFile',
+  ]) {
+    params[key] = form[key]
+  }
+
+  if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
+  if (impRows.value.length) params['impedanceTable'] = impRows.value
+
+  const payload = { taskId: taskId.value, pcbQuoteParams: params }
 
   const win = window as any;
   if (win.QtBridge?.send) {
     win.QtBridge.send('html-button-message', payload);
   } else {
-    console.log('📋 提交:', JSON.stringify(payload, null, 2));
+    console.log('📋 提交报价:', JSON.stringify(payload, null, 2));
   }
   setTimeout(() => {
     submitting.value = false;
-    ElMessage.success("已提交");
+    // ElMessage.success('已提交');
   }, 500);
 }
 
-// 接收 C++ 推送的数据
+async function submitOrder() {
+  if (!validateForm()) return
+
+  ordering.value = true
+  const params: Record<string, any> = {}
+  for (const key of [
+    'pcbName','pcbFile','layerCount','blindVia','pcsSizeWidth','pcsSizeHeight',
+    'dimensionTolerance','quantity','deliveryUnit','panelTypesCount','setMethod',
+    'clientPanelHorizontal','clientPanelVertical','setSizeWidth','setSizeHeight',
+    'clientPanelSeparation','acceptXOut','materialType','materialTg','halogenFree',
+    'maxWarpage','boardThickness','thicknessTolerance','outerCopperThickness',
+    'outerBaseCopperThickness','innerCopperThickness','minTraceWidthOuter',
+    'minTraceSpacingOuter','minTraceWidthInner','minTraceSpacingInner',
+    'minHoleSize','holeCopperThickness','solderMaskColor','silkscreenColor',
+    'surfaceFinish','enigGoldThickness','immersionGoldArea','viaProcess',
+    'goldFingerType','goldFingerThickness','goldFingerChamferAngle',
+    'goldFingerChamferDepth','goldFingerChamferRemaining',
+    'acceptanceStandard','impedanceControl','markingRequirements',
+    'periodFormat','testRequirements','shippingReports','specialProcesses',
+    'confirmProductionFile',
+  ]) {
+    const raw = fieldRawData[key]
+    const src = userModified.value.has(key) ? 'user' : (fieldSource[key] || 'user')
+    params[key] = { ...(raw || {}), value: form[key], source: src }
+  }
+
+  const payload = params
+
+  const win = window as any
+  if (win.QtBridge?.send) {
+    win.QtBridge.send('html-button-message', payload)
+  } else {
+    console.log('📋 提交订单:', JSON.stringify(payload, null, 2))
+  }
+  setTimeout(() => {
+    ordering.value = false
+    // ElMessage.success('订单已提交')
+  }, 500)
+}
+
+const formDataLoaded = ref(false)
+
+// ==================== 接收 C++ 推送的数据 ====================
 const rawEventData = ref<any>(null)
+const quoteData = ref<any>(null)
 
 onMounted(() => {
   window.addEventListener('QtMessage', (event: any) => {
     const detail = event.detail
-    // rawEventData.value = detail
-    if (detail && typeof detail === 'object') {
-      const data = detail.parameters || detail
-      applyFieldData(data)
-      ElMessage.success('数据已同步')
+    if (!detail || typeof detail !== 'object') return
+
+    if (detail.taskId) taskId.value = detail.taskId
+
+    const rn = detail.returnName
+    if (rn === 'token' && detail.elecnest_user_info) {
+      userToken.value = detail.elecnest_user_info.elecnest_user_token || ''
+      userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''
+      return
     }
+    if (rn === 'quote') {
+      if (detail.code === 200) {
+        quoteData.value = detail.data
+        ElMessage.success(detail.message || '报价成功')
+      } else {
+        ElMessage.error(detail.message || '报价失败')
+      }
+      return
+    }
+    if (rn === 'order') {
+      ElMessage(detail.code === 200 ? 'success' : 'error', detail.message || '')
+      return
+    }
+    // 无 returnName：表单渲染数据
+    const data = detail.parameters || detail
+    applyFieldData(data)
+    formDataLoaded.value = true
+    ElMessage.success('数据已同步')
   })
 })
 </script>
 
 <template>
   <div class="page-wrapper">
+    <!-- 加载遮罩 -->
+    <!-- <div v-if="!formDataLoaded" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <p>等待数据加载...</p>
+    </div> -->
+
     <div class="form-box">
       <table class="param-table">
         <thead>
@@ -433,7 +610,7 @@ onMounted(() => {
           <template v-if="sections.basic">
             <tr>
               <td class="td-name">生产型号<span class="req">*</span></td>
-              <td class="td-val"><el-input v-model="form.pcbName" size="small" placeholder="生产型号" /></td>
+              <td class="td-val"><el-input v-model="form.pcbName" :class="isInvalid('pcbName')" @change="clearInvalid('pcbName')" size="small" placeholder="生产型号" /></td>
               <td class="td-src"><span :class="sourceClass('pcbName')">{{ sourceLabel('pcbName') }}</span></td>
               <td class="td-view">
                 <button v-if="showGraphicBtn('pcbName')" class="btn-view graphic" @click="handleViewClick('pcbName')">图形</button>
@@ -442,7 +619,7 @@ onMounted(() => {
             </tr>
             <tr>
               <td class="td-name">PCB 资料<span class="req">*</span></td>
-              <td class="td-val"><el-input v-model="form.pcbFile" size="small" placeholder="PCB 资料" /></td>
+              <td class="td-val"><el-input v-model="form.pcbFile" :class="isInvalid('pcbFile')" @change="clearInvalid('pcbFile')" size="small" placeholder="PCB 资料" /></td>
               <td class="td-src"><span :class="sourceClass('pcbFile')">{{ sourceLabel('pcbFile') }}</span></td>
               <td class="td-view">
                 <button v-if="showGraphicBtn('pcbFile')" class="btn-view graphic" @click="handleViewClick('pcbFile')">图形</button>
@@ -453,7 +630,7 @@ onMounted(() => {
               <td class="td-name">板子层数<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.layerCount"
+                  v-model="form.layerCount" :class="isInvalid('layerCount')" @change="clearInvalid('layerCount')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -473,7 +650,7 @@ onMounted(() => {
               <td class="td-name">盲埋孔<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.blindVia"
+                  v-model="form.blindVia" :class="isInvalid('blindVia')" @change="clearInvalid('blindVia')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -493,7 +670,7 @@ onMounted(() => {
               <td class="td-name">PCS尺寸(水平)<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.pcsSizeWidth"
+                  v-model="form.pcsSizeWidth" :class="isInvalid('pcsSizeWidth')" @change="clearInvalid('pcsSizeWidth')"
                   size="small"
                   :min="0"
                   :max="571.5"
@@ -514,7 +691,7 @@ onMounted(() => {
               <td class="td-name">PCS尺寸(垂直)<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.pcsSizeHeight"
+                  v-model="form.pcsSizeHeight" :class="isInvalid('pcsSizeHeight')" @change="clearInvalid('pcsSizeHeight')"
                   size="small"
                   :min="0"
                   :max="571.5"
@@ -535,7 +712,7 @@ onMounted(() => {
               <td class="td-name">外形公差<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.dimensionTolerance"
+                  v-model="form.dimensionTolerance" :class="isInvalid('dimensionTolerance')" @change="clearInvalid('dimensionTolerance')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -557,7 +734,7 @@ onMounted(() => {
               <td class="td-name">板子数量<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.quantity"
+                  v-model="form.quantity" :class="isInvalid('quantity')" @change="clearInvalid('quantity')"
                   size="small"
                   :min="1"
                   style="width: 100%"
@@ -573,7 +750,7 @@ onMounted(() => {
               <td class="td-name">交货单位<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.deliveryUnit"
+                  v-model="form.deliveryUnit" :class="isInvalid('deliveryUnit')" @change="clearInvalid('deliveryUnit')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -593,7 +770,7 @@ onMounted(() => {
               <td class="td-name">合拼种数<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.panelTypesCount"
+                  v-model="form.panelTypesCount" :class="isInvalid('panelTypesCount')" @change="clearInvalid('panelTypesCount')"
                   size="small"
                   :min="1"
                   :max="100"
@@ -610,7 +787,7 @@ onMounted(() => {
               <td class="td-name">Set拼板方式<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.setMethod"
+                  v-model="form.setMethod" :class="isInvalid('setMethod')" @change="clearInvalid('setMethod')"
                   size="small"
                   style="width: 100%"
                 >
@@ -643,7 +820,7 @@ onMounted(() => {
                 </td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.clientPanelHorizontal"
+                    v-model="form.clientPanelHorizontal" :class="isInvalid('clientPanelHorizontal')" @change="clearInvalid('clientPanelHorizontal')"
                     size="small"
                     :min="1"
                     :max="100"
@@ -662,7 +839,7 @@ onMounted(() => {
                 </td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.clientPanelVertical"
+                    v-model="form.clientPanelVertical" :class="isInvalid('clientPanelVertical')" @change="clearInvalid('clientPanelVertical')"
                     size="small"
                     :min="1"
                     :max="100"
@@ -679,7 +856,7 @@ onMounted(() => {
                 <td class="td-name">Set尺寸(水平)<span class="req">*</span></td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.setSizeWidth"
+                    v-model="form.setSizeWidth" :class="isInvalid('setSizeWidth')" @change="clearInvalid('setSizeWidth')"
                     size="small"
                     :min="0"
                     :max="571.5"
@@ -698,7 +875,7 @@ onMounted(() => {
                 <td class="td-name">Set尺寸(垂直)<span class="req">*</span></td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.setSizeHeight"
+                    v-model="form.setSizeHeight" :class="isInvalid('setSizeHeight')" @change="clearInvalid('setSizeHeight')"
                     size="small"
                     :min="0"
                     :max="571.5"
@@ -717,7 +894,7 @@ onMounted(() => {
                 <td class="td-name">外形要求<span class="req">*</span></td>
                 <td class="td-val">
                   <el-select
-                    v-model="form.clientPanelSeparation"
+                    v-model="form.clientPanelSeparation" :class="isInvalid('clientPanelSeparation')" @change="clearInvalid('clientPanelSeparation')"
                     size="small"
                     style="width: 100%"
                     ><el-option
@@ -739,7 +916,7 @@ onMounted(() => {
                 </td>
                 <td class="td-val">
                   <el-select
-                    v-model="form.acceptXOut"
+                    v-model="form.acceptXOut" :class="isInvalid('acceptXOut')" @change="clearInvalid('acceptXOut')"
                     size="small"
                     style="width: 100%"
                     ><el-option
@@ -770,7 +947,7 @@ onMounted(() => {
               <td class="td-name">板材种类<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.materialType"
+                  v-model="form.materialType" :class="isInvalid('materialType')" @change="clearInvalid('materialType')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -790,7 +967,7 @@ onMounted(() => {
               <td class="td-name">高TG<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.materialTg"
+                  v-model="form.materialTg" :class="isInvalid('materialTg')" @change="clearInvalid('materialTg')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -810,7 +987,7 @@ onMounted(() => {
               <td class="td-name">无卤板材<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.halogenFree"
+                  v-model="form.halogenFree" :class="isInvalid('halogenFree')" @change="clearInvalid('halogenFree')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -830,7 +1007,7 @@ onMounted(() => {
               <td class="td-name">翘曲度<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.maxWarpage"
+                  v-model="form.maxWarpage" :class="isInvalid('maxWarpage')" @change="clearInvalid('maxWarpage')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -850,7 +1027,7 @@ onMounted(() => {
               <td class="td-name">成品板厚<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.boardThickness"
+                  v-model="form.boardThickness" :class="isInvalid('boardThickness')" @change="clearInvalid('boardThickness')"
                   size="small"
                   filterable
                   allow-create
@@ -874,7 +1051,7 @@ onMounted(() => {
               <td class="td-name">板厚公差<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.thicknessTolerance"
+                  v-model="form.thicknessTolerance" :class="isInvalid('thicknessTolerance')" @change="clearInvalid('thicknessTolerance')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -894,7 +1071,7 @@ onMounted(() => {
               <td class="td-name">外层完成铜厚度<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.outerCopperThickness"
+                  v-model="form.outerCopperThickness" :class="isInvalid('outerCopperThickness')" @change="clearInvalid('outerCopperThickness')"
                   size="small"
                   filterable
                   allow-create
@@ -918,7 +1095,7 @@ onMounted(() => {
               <td class="td-name">内层基铜厚度<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.innerCopperThickness"
+                  v-model="form.innerCopperThickness" :class="isInvalid('innerCopperThickness')" @change="clearInvalid('innerCopperThickness')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -938,7 +1115,7 @@ onMounted(() => {
               <td class="td-name">外层最小线宽<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.minTraceWidthOuter"
+                  v-model="form.minTraceWidthOuter" :class="isInvalid('minTraceWidthOuter')" @change="clearInvalid('minTraceWidthOuter')"
                   size="small"
                   :min="0"
                   :precision="2"
@@ -957,7 +1134,7 @@ onMounted(() => {
               <td class="td-name">外层最小间距<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.minTraceSpacingOuter"
+                  v-model="form.minTraceSpacingOuter" :class="isInvalid('minTraceSpacingOuter')" @change="clearInvalid('minTraceSpacingOuter')"
                   size="small"
                   :min="0"
                   :precision="2"
@@ -977,7 +1154,7 @@ onMounted(() => {
                 <td class="td-name">内层最小线宽<span class="req">*</span></td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.minTraceWidthInner"
+                    v-model="form.minTraceWidthInner" :class="isInvalid('minTraceWidthInner')" @change="clearInvalid('minTraceWidthInner')"
                     size="small"
                     :min="0"
                     :precision="2"
@@ -996,7 +1173,7 @@ onMounted(() => {
                 <td class="td-name">内层最小间距<span class="req">*</span></td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.minTraceSpacingInner"
+                    v-model="form.minTraceSpacingInner" :class="isInvalid('minTraceSpacingInner')" @change="clearInvalid('minTraceSpacingInner')"
                     size="small"
                     :min="0"
                     :precision="2"
@@ -1016,7 +1193,7 @@ onMounted(() => {
               <td class="td-name">最小孔径<span class="req">*</span></td>
               <td class="td-val">
                 <el-input-number
-                  v-model="form.minHoleSize"
+                  v-model="form.minHoleSize" :class="isInvalid('minHoleSize')" @change="clearInvalid('minHoleSize')"
                   size="small"
                   :min="0"
                   :precision="3"
@@ -1035,7 +1212,7 @@ onMounted(() => {
               <td class="td-name">最小孔铜<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.holeCopperThickness"
+                  v-model="form.holeCopperThickness" :class="isInvalid('holeCopperThickness')" @change="clearInvalid('holeCopperThickness')"
                   size="small"
                   filterable
                   allow-create
@@ -1057,7 +1234,7 @@ onMounted(() => {
               <td class="td-name">阻焊颜色<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.solderMaskColor"
+                  v-model="form.solderMaskColor" :class="isInvalid('solderMaskColor')" @change="clearInvalid('solderMaskColor')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1077,7 +1254,7 @@ onMounted(() => {
               <td class="td-name">字符颜色<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.silkscreenColor"
+                  v-model="form.silkscreenColor" :class="isInvalid('silkscreenColor')" @change="clearInvalid('silkscreenColor')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1097,7 +1274,7 @@ onMounted(() => {
               <td class="td-name">表面处理<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.surfaceFinish"
+                  v-model="form.surfaceFinish" :class="isInvalid('surfaceFinish')" @change="clearInvalid('surfaceFinish')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1118,7 +1295,7 @@ onMounted(() => {
                 <td class="td-name">最小沉金金厚<span class="req">*</span></td>
                 <td class="td-val">
                   <el-select
-                    v-model="form.enigGoldThickness"
+                    v-model="form.enigGoldThickness" :class="isInvalid('enigGoldThickness')" @change="clearInvalid('enigGoldThickness')"
                     size="small"
                     style="width: 100%"
                     ><el-option
@@ -1138,7 +1315,7 @@ onMounted(() => {
                 <td class="td-name">沉金面积（双面之和）</td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.immersionGoldArea"
+                    v-model="form.immersionGoldArea" :class="isInvalid('immersionGoldArea')" @change="clearInvalid('immersionGoldArea')"
                     size="small"
                     :min="0"
                     :precision="1"
@@ -1156,7 +1333,7 @@ onMounted(() => {
               <td class="td-name">过孔工艺<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.viaProcess"
+                  v-model="form.viaProcess" :class="isInvalid('viaProcess')" @change="clearInvalid('viaProcess')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1176,7 +1353,7 @@ onMounted(() => {
               <td class="td-name">金手指类型<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.goldFingerType"
+                  v-model="form.goldFingerType" :class="isInvalid('goldFingerType')" @change="clearInvalid('goldFingerType')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1197,7 +1374,7 @@ onMounted(() => {
                 <td class="td-name">金手指金厚<span class="req">*</span></td>
                 <td class="td-val">
                   <el-select
-                    v-model="form.goldFingerThickness"
+                    v-model="form.goldFingerThickness" :class="isInvalid('goldFingerThickness')" @change="clearInvalid('goldFingerThickness')"
                     size="small"
                     style="width: 100%"
                     ><el-option
@@ -1217,7 +1394,7 @@ onMounted(() => {
                 <td class="td-name">倒角角度<span class="req">*</span></td>
                 <td class="td-val">
                   <el-select
-                    v-model="form.goldFingerChamferAngle"
+                    v-model="form.goldFingerChamferAngle" :class="isInvalid('goldFingerChamferAngle')" @change="clearInvalid('goldFingerChamferAngle')"
                     size="small"
                     style="width: 100%"
                     ><el-option
@@ -1237,7 +1414,7 @@ onMounted(() => {
                 <td class="td-name">倒角深度</td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.goldFingerChamferDepth"
+                    v-model="form.goldFingerChamferDepth" :class="isInvalid('goldFingerChamferDepth')" @change="clearInvalid('goldFingerChamferDepth')"
                     size="small"
                     :min="0"
                     :max="10"
@@ -1255,7 +1432,7 @@ onMounted(() => {
                 <td class="td-name">金手指倒角余厚</td>
                 <td class="td-val">
                   <el-input-number
-                    v-model="form.goldFingerChamferRemaining"
+                    v-model="form.goldFingerChamferRemaining" :class="isInvalid('goldFingerChamferRemaining')" @change="clearInvalid('goldFingerChamferRemaining')"
                     size="small"
                     :min="0"
                     :max="10"
@@ -1284,7 +1461,7 @@ onMounted(() => {
               <td class="td-name">验收标准<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.acceptanceStandard"
+                  v-model="form.acceptanceStandard" :class="isInvalid('acceptanceStandard')" @change="clearInvalid('acceptanceStandard')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1304,7 +1481,7 @@ onMounted(() => {
               <td class="td-name">阻抗控制<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.impedanceControl"
+                  v-model="form.impedanceControl" :class="isInvalid('impedanceControl')" @change="clearInvalid('impedanceControl')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1324,7 +1501,7 @@ onMounted(() => {
               <td class="td-name">标记要求<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.markingRequirements"
+                  v-model="form.markingRequirements" :class="isInvalid('markingRequirements')" @change="clearInvalid('markingRequirements')"
                   size="small"
                   multiple
                   collapse-tags
@@ -1346,7 +1523,7 @@ onMounted(() => {
               <td class="td-name">周期格式<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.periodFormat"
+                  v-model="form.periodFormat" :class="isInvalid('periodFormat')" @change="clearInvalid('periodFormat')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1366,7 +1543,7 @@ onMounted(() => {
               <td class="td-name">测试要求<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.testRequirements"
+                  v-model="form.testRequirements" :class="isInvalid('testRequirements')" @change="clearInvalid('testRequirements')"
                   size="small"
                   multiple
                   collapse-tags
@@ -1388,7 +1565,7 @@ onMounted(() => {
               <td class="td-name">出货报告<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.shippingReports"
+                  v-model="form.shippingReports" :class="isInvalid('shippingReports')" @change="clearInvalid('shippingReports')"
                   size="small"
                   multiple
                   collapse-tags
@@ -1410,7 +1587,7 @@ onMounted(() => {
               <td class="td-name">特殊工艺<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.specialProcesses"
+                  v-model="form.specialProcesses" :class="isInvalid('specialProcesses')" @change="clearInvalid('specialProcesses')"
                   size="small"
                   multiple
                   collapse-tags
@@ -1432,7 +1609,7 @@ onMounted(() => {
               <td class="td-name">光绘确认<span class="req">*</span></td>
               <td class="td-val">
                 <el-select
-                  v-model="form.confirmProductionFile"
+                  v-model="form.confirmProductionFile" :class="isInvalid('confirmProductionFile')" @change="clearInvalid('confirmProductionFile')"
                   size="small"
                   style="width: 100%"
                   ><el-option
@@ -1664,35 +1841,76 @@ onMounted(() => {
         </tbody>
       </table>
 
+      <!-- ====== 六、开票资料 ====== -->
+      <div class="extra-card">
+        <div class="extra-title" @click="sections.invoice = !sections.invoice">
+          📄 开票资料 <span class="arrow" :class="{ up: sections.invoice }">▼</span>
+        </div>
+        <template v-if="sections.invoice">
+          <div style="padding:12px 16px;display:flex;align-items:center;gap:10px">
+            <span style="font-size:11px;color:#888">发票类型</span>
+            <el-select v-model="form.invoiceType" size="small" style="width:320px">
+              <el-option v-for="v in opts.invoiceType" :key="v" :label="v" :value="v" />
+            </el-select>
+          </div>
+          <table class="invoice-table">
+            <thead><tr><th>抬头</th><th>税号</th><th class="no-header"></th></tr></thead>
+            <tbody><tr><td colspan="3" style="text-align:center;color:#ccc;padding:24px">暂无开票资料</td></tr></tbody>
+          </table>
+          <div style="padding:12px 16px">
+            <button class="btn-add-row">+ 新增开票资料</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- ====== 七、配送信息 ====== -->
+      <div class="extra-card">
+        <div class="extra-title" @click="sections.delivery = !sections.delivery">
+          🚚 配送信息 <span class="arrow" :class="{ up: sections.delivery }">▼</span>
+        </div>
+        <template v-if="sections.delivery">
+          <div class="extra-grid">
+            <div class="extra-item">
+              <span class="extra-label">收货人</span>
+              <el-input v-model="form.deliveryContact" size="small" placeholder="姓名" />
+            </div>
+            <div class="extra-item">
+              <span class="extra-label">联系电话</span>
+              <el-input v-model="form.deliveryPhone" size="small" placeholder="手机号" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;grid-column:span 2">
+              <span class="extra-label">收货地址</span>
+              <el-input v-model="form.deliveryAddress" size="small" placeholder="详细地址" />
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- 报价摘要 + 提交 -->
       <div class="quote-card">
         <div class="qc-title">💰 报价摘要</div>
         <div class="qc-grid">
-          <div class="qc-row">
-            <span>数量</span><span class="qcv">{{ form.quantity }} pcs</span>
-          </div>
-          <div class="qc-row">
-            <span>层数</span><span class="qcv">{{ form.layerCount }}层</span>
-          </div>
-          <div class="qc-row">
-            <span>板厚</span
-            ><span class="qcv">{{ form.boardThickness }}mm</span>
-          </div>
-          <div class="qc-row">
-            <span>板材</span><span class="qcv">{{ form.materialType }}</span>
-          </div>
-          <div class="qc-row">
-            <span>表面处理</span
-            ><span class="qcv">{{ form.surfaceFinish }}</span>
-          </div>
+          <!-- <div class="qc-row"><span>数量</span><span class="qcv">{{ form.quantity }} pcs</span></div> -->
+          <!-- <div class="qc-row"><span>层数</span><span class="qcv">{{ form.layerCount }}层</span></div> -->
+          <!-- <div class="qc-row"><span>板厚</span><span class="qcv">{{ form.boardThickness }}mm</span></div> -->
+          <!-- <div class="qc-row"><span>板材</span><span class="qcv">{{ form.materialType }}</span></div> -->
+          <!-- <div class="qc-row"><span>表面处理</span><span class="qcv">{{ form.surfaceFinish }}</span></div> -->
+          <div class="qc-row"><span>制板费</span><span class="qcv">¥{{ quoteData?.boardBaseFee?.toFixed(2) || '--' }}</span></div>
+          <div class="qc-row"><span>工程费</span><span class="qcv">¥{{ quoteData?.engineeringFee?.toFixed(2) || '--' }}</span></div>
+          <div class="qc-row"><span>特殊工艺加价</span><span class="qcv">¥{{ quoteData?.specialProcessFee?.toFixed(2) || '--' }}</span></div>
+          <div class="qc-row"><span>加急费</span><span class="qcv">¥{{ quoteData?.expediteFee || '--' }}</span></div>
+          <div class="qc-row"><span>单价</span><span class="qcv">{{ quoteData ? '¥' + quoteData.price?.toFixed(2) + ' / PCS' : '--' }}</span></div>
         </div>
         <div class="qc-divider"></div>
         <div class="qc-total">
           <span>预估总价<br /><small>(不含税运)</small></span>
-          <span class="qc-price">--</span>
+          <span class="qc-price">{{ quoteData ? '¥' + quoteData.totalFee?.toFixed(2) : '--' }}</span>
         </div>
         <button class="btn-submit" :disabled="submitting" @click="submitForm">
           {{ submitting ? "提交中..." : "获取报价" }}
+        </button>
+        <button class="btn-submit btn-order" :disabled="ordering || !quoteData" @click="submitOrder">
+          {{ ordering ? "提交中..." : "提交订单" }}
         </button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
       </div>
@@ -1994,8 +2212,43 @@ onMounted(() => {
   margin: 6px 0 0;
 }
 
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.9);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #666;
+  font-size: 14px;
+}
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e6eb;
+  border-top-color: #2756ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .debug-panel { margin: 0 16px 16px; background: #1e1e1e; border-radius: 6px; overflow: hidden; }
 .debug-title { padding: 8px 14px; font-size: 12px; font-weight: 600; color: #ccc; cursor: pointer; user-select: none; background: #2a2a2a; }
 .debug-title:hover { color: #fff; }
 .debug-json { max-height: 360px; overflow: auto; margin: 0; padding: 12px 14px; font-size: 11px; line-height: 1.5; color: #ce9178; white-space: pre-wrap; word-break: break-all; }
+:deep(.input-error .el-input__wrapper) { box-shadow: 0 0 0 1px #f56c6c inset !important; }
+:deep(.input-error .el-input__inner) { color: #f56c6c; }
+
+.extra-card { margin: 12px 16px; background: #fff; border-radius: 8px; border: 1px solid #e5e6eb; overflow: hidden; }
+.extra-title { padding: 10px 16px; font-size: 13px; font-weight: 600; color: #2756ff; background: #f7f8fc; cursor: pointer; }
+.extra-label { font-size: 11px; color: #888; }
+.extra-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
+.extra-item { display: flex; flex-direction: column; gap: 4px; }
+.invoice-table { width: calc(100% - 32px); margin: 0 16px; border-collapse: collapse; font-size: 12px; }
+.invoice-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; text-align: left; font-weight: 600; color: #666; }
+.invoice-table th.no-header { background: #fff; border: none; width: 160px; }
+.invoice-table td { padding: 8px 10px; border: 1px solid #f0f0f0; }
 </style>

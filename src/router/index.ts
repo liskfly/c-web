@@ -7,22 +7,22 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: () => import('@/pages/Home.vue'),
+      component: () => import('@/pages/home/Home.vue'),
     },
     {
       path: '/plugin-a',
       name: 'pluginA',
-      component: () => import('@/pages/PluginA.vue'),
+      component: () => import('@/pages/pluginA/PluginA.vue'),
     },
     {
       path: '/plugin-b',
       name: 'pluginB',
-      component: () => import('@/pages/PluginB.vue'),
+      component: () => import('@/pages/pluginB/PluginB.vue'),
     },
     {
       path: '/plugin-c',
       name: 'pluginC',
-      component: () => import('@/pages/PluginC.vue'),
+      component: () => import('@/pages/pluginC/PluginC.vue'),
     },
   ],
 })

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed, onMounted } from "vue";
+import InvoiceSection from './InvoiceSection.vue'
+import DeliverySection from './DeliverySection.vue'
 import {
   ElInput,
   ElSelect,
@@ -21,6 +23,8 @@ const sections = reactive<Record<string, boolean>>({
 });
 
 const taskId = ref('')
+const invoiceRef = ref<any>(null)
+const deliveryRef = ref<any>(null)
 
 // ==================== 校验状态 ====================
 const invalidFields = ref<Set<string>>(new Set())
@@ -68,14 +72,10 @@ const form = reactive<Record<string, any>>({
   shippingReports: [] as string[],
   specialProcesses: [] as string[],
   confirmProductionFile: false,
-  invoiceType: "",
-  deliveryContact: "",
-  deliveryPhone: "",
-  deliveryAddress: "",
 });
 
 // ==================== 数据来源追踪 ====================
-const userToken = ref('')
+const userToken = ref('Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODQyMDMxNzYsImV4cCI6MTc4Njc5NTE3NiwiZGF0YSI6eyJ1aWQiOiIzNTMwNzEiLCJ0b2tlbiI6Ijk5ZDg1MzI4NzhhYWZmZjVlNTJiMDg2NDZhNzg2MDg3YmIwYzM2OTg5ZTJlMzRkZGNiMGNlYWIyYTk4NWUzNzEifX0.Q8S59LkMv2OCYuAnTLdT0UCi9I3Eyv8ThuZpV_e0h-U')
 const userUid = ref('')
 
 const fieldSource = reactive<Record<string, string>>({})
@@ -110,7 +110,7 @@ function applyFieldData(data: Record<string, any>) {
 }
 
 // ==================== 选项 ====================
-const opts: Record<string, string[]> = {
+const opts: Record<string, any[]> = {
   layerCount: [
     "1",
     "2",
@@ -1842,49 +1842,10 @@ onMounted(() => {
       </table>
 
       <!-- ====== 六、开票资料 ====== -->
-      <div class="extra-card">
-        <div class="extra-title" @click="sections.invoice = !sections.invoice">
-          📄 开票资料 <span class="arrow" :class="{ up: sections.invoice }">▼</span>
-        </div>
-        <template v-if="sections.invoice">
-          <div style="padding:12px 16px;display:flex;align-items:center;gap:10px">
-            <span style="font-size:11px;color:#888">发票类型</span>
-            <el-select v-model="form.invoiceType" size="small" style="width:320px">
-              <el-option v-for="v in opts.invoiceType" :key="v" :label="v" :value="v" />
-            </el-select>
-          </div>
-          <table class="invoice-table">
-            <thead><tr><th>抬头</th><th>税号</th><th class="no-header"></th></tr></thead>
-            <tbody><tr><td colspan="3" style="text-align:center;color:#ccc;padding:24px">暂无开票资料</td></tr></tbody>
-          </table>
-          <div style="padding:12px 16px">
-            <button class="btn-add-row">+ 新增开票资料</button>
-          </div>
-        </template>
-      </div>
+      <InvoiceSection ref="invoiceRef" v-model:expanded="sections.invoice" :uid="userUid" :token="userToken" />
 
       <!-- ====== 七、配送信息 ====== -->
-      <div class="extra-card">
-        <div class="extra-title" @click="sections.delivery = !sections.delivery">
-          🚚 配送信息 <span class="arrow" :class="{ up: sections.delivery }">▼</span>
-        </div>
-        <template v-if="sections.delivery">
-          <div class="extra-grid">
-            <div class="extra-item">
-              <span class="extra-label">收货人</span>
-              <el-input v-model="form.deliveryContact" size="small" placeholder="姓名" />
-            </div>
-            <div class="extra-item">
-              <span class="extra-label">联系电话</span>
-              <el-input v-model="form.deliveryPhone" size="small" placeholder="手机号" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:4px;grid-column:span 2">
-              <span class="extra-label">收货地址</span>
-              <el-input v-model="form.deliveryAddress" size="small" placeholder="详细地址" />
-            </div>
-          </div>
-        </template>
-      </div>
+      <DeliverySection ref="deliveryRef" v-model:expanded="sections.delivery" :token="userToken" />
 
       <!-- 报价摘要 + 提交 -->
       <div class="quote-card">
@@ -2241,14 +2202,4 @@ onMounted(() => {
 .debug-json { max-height: 360px; overflow: auto; margin: 0; padding: 12px 14px; font-size: 11px; line-height: 1.5; color: #ce9178; white-space: pre-wrap; word-break: break-all; }
 :deep(.input-error .el-input__wrapper) { box-shadow: 0 0 0 1px #f56c6c inset !important; }
 :deep(.input-error .el-input__inner) { color: #f56c6c; }
-
-.extra-card { margin: 12px 16px; background: #fff; border-radius: 8px; border: 1px solid #e5e6eb; overflow: hidden; }
-.extra-title { padding: 10px 16px; font-size: 13px; font-weight: 600; color: #2756ff; background: #f7f8fc; cursor: pointer; }
-.extra-label { font-size: 11px; color: #888; }
-.extra-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
-.extra-item { display: flex; flex-direction: column; gap: 4px; }
-.invoice-table { width: calc(100% - 32px); margin: 0 16px; border-collapse: collapse; font-size: 12px; }
-.invoice-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; text-align: left; font-weight: 600; color: #666; }
-.invoice-table th.no-header { background: #fff; border: none; width: 160px; }
-.invoice-table td { padding: 8px 10px; border: 1px solid #f0f0f0; }
 </style>

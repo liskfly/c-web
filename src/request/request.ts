@@ -33,9 +33,10 @@ service.interceptors.request.use(
     const isUpload =
       config.method === 'post' &&
       (config.headers?.['Content-Type'] as string)?.includes('multipart/form-data')
-    if (!isUpload) {
-      showLoading()
-    }
+    const isSilent = config.headers?.__silent
+    if (!isUpload && !isSilent) { showLoading() }
+    // 清理内部标记，不发给后端
+    if (isSilent) delete config.headers.__silent
     return config
   },
   (error) => {

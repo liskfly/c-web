@@ -2,6 +2,11 @@
   <RouterView />
 </template>
 
+<script>
+import vconsole from 'vconsole'
+new vconsole()
+</script>
+
 <style>
 * {
   margin: 0;

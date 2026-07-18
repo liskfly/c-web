@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { ElSelect, ElOption, ElTabs, ElTabPane, ElDialog, ElRadioGroup, ElRadio, ElInput, ElCheckbox, ElMessage, ElButton } from 'element-plus'
 import { addUserInvoiceInfo, userInvoiceInfoList, setUserInvoiceInfo, delUserInvoiceInfo, setDefaultInvoice } from '@/api/invoice'
 
@@ -16,20 +16,22 @@ const props = defineProps<{ uid: string; token: string }>()
 const invoiceType = ref('2')
 const expanded = defineModel<boolean>('expanded', { default: true })
 const invoiceList = ref<InvoiceItem[]>([])
-const debugRes = ref<any>(null)
-const debugReq = ref<any>(null)
+const selectedInvoiceId = ref(0)
+defineExpose({ invoiceType, selectedInvoiceId })
 
-defineExpose({ invoiceType })
+// 添加按钮显隐：普票最多3，专票最多1
+const maxCount = computed(() => invoiceType.value === '1' ? 1 : 3)
+const showAddBtn = computed(() => invoiceList.value.length < maxCount.value)
 
-// 获取 uid 后拉取发票列表
 async function fetchList() {
   if (!props.token) return
   try {
-    debugReq.value = { token: props.token ? '(已获取)' : '(空)', invoice_type: Number(invoiceType.value) }
     const res: any = await userInvoiceInfoList(props.token, { invoice_type: Number(invoiceType.value) })
-    debugRes.value = res
     if (res.code === '10000') invoiceList.value = res.data || []
-  } catch (e: any) { debugRes.value = e?.response?.data || e.message || String(e) }
+    const def = invoiceList.value.find(i => i.is_default_invoice === 1)
+    if (def) selectedInvoiceId.value = def.invoice_id
+    else if (invoiceList.value.length) selectedInvoiceId.value = invoiceList.value[0].invoice_id
+  } catch { /* */ }
 }
 
 async function setDefault(id: number) {
@@ -89,7 +91,6 @@ async function handleConfirm() {
       is_default_invoice: form.value.isDefault ? 1 : 0,
       invoice_issuer: isSpecial ? undefined : form.value.invoiceSubject,
     }
-    debugReq.value = reqData
     let res: any
     if (editingId.value) {
       res = await setUserInvoiceInfo(props.token, { invoice_id: editingId.value, ...reqData })
@@ -125,10 +126,13 @@ async function handleConfirm() {
       </div>
       <!-- 发票表格 -->
       <table class="invoice-table">
-        <thead><tr><th>抬头</th><th>税号</th><th class="no-header"></th></tr></thead>
+        <thead><tr><th style="width:40px"></th><th>抬头</th><th>税号</th><th class="no-header"></th></tr></thead>
         <tbody>
-          <tr v-if="invoiceList.length === 0"><td colspan="3" style="text-align:center;color:#ccc;padding:24px">暂无开票资料</td></tr>
-          <tr v-for="item in invoiceList" :key="item.invoice_id">
+          <tr v-if="invoiceList.length === 0"><td colspan="4" style="text-align:center;color:#ccc;padding:24px">暂无开票资料</td></tr>
+          <tr v-for="item in invoiceList" :key="item.invoice_id" :class="{ 'row-selected': item.is_default_invoice === 1 }">
+            <td style="text-align:center">
+              <input type="radio" name="selectedInvoice" :checked="selectedInvoiceId === item.invoice_id" @change="selectedInvoiceId = item.invoice_id" />
+            </td>
             <td>{{ item.invoice_name }}</td>
             <td>{{ item.tax_id }}</td>
             <td style="white-space:nowrap;text-align:right">
@@ -140,17 +144,10 @@ async function handleConfirm() {
         </tbody>
       </table>
       <div style="padding:12px 16px">
-        <button class="btn-add-row" @click="openDialog()">+ 新增开票资料</button>
+        <button v-if="showAddBtn" class="btn-add-row" @click="openDialog()">+ 新增开票资料</button>
       </div>
     </template>
 
-    <!-- 调试 -->
-    <div style="margin:12px 16px;padding:12px;background:#f5f5f5;border-radius:4px;font-size:11px;max-height:300px;overflow:auto">
-      <div><b>uid:</b> {{ props.uid || '(空)' }}</div>
-      <div><b>token:</b> {{ props.token ? '已获取(' + props.token.substring(0, 20) + '...)' : '(空)' }}</div>
-      <div v-if="debugReq"><b>请求参数:</b> <pre>{{ JSON.stringify(debugReq, null, 2) }}</pre></div>
-      <div v-if="debugRes"><b>返回结果:</b> <pre>{{ JSON.stringify(debugRes, null, 2) }}</pre></div>
-    </div>
   </div>
 
   <!-- ==================== Dialog ==================== -->

@@ -108,6 +108,26 @@ export function delUserReceiptInfo(token: string, receipt_id: number) {
   })
 }
 
+/** 发起支付 */
+export function pcbPayV2(token: string, data: { order_no: string }) {
+  return request({
+    url: '/aishop/api/pay/pcbPayV2',
+    method: 'post',
+    data,
+    headers: { Authorization: token },
+  })
+}
+
+/** 轮询获取PCB订单支付状态 */
+export function getPcbOrderStatusV2(token: string, params: { merge_order_no: string }) {
+  return request({
+    url: '/aishop/api/pay/getPcbOrderStatusV2',
+    method: 'get',
+    params,
+    headers: { Authorization: token, __silent: '1' },
+  })
+}
+
 /** 获取省市区地址列表 */
 export function getAreaList(token: string) {
   return request({ url: '/aishop/api/area/getAreaListV2', method: 'get', headers: { Authorization: token } })

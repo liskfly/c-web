@@ -14,14 +14,21 @@ interface AreaNode { id: number; pid: number; name: string; childlist: AreaNode[
 const props = defineProps<{ token: string }>()
 const expanded = defineModel<boolean>('expanded', { default: true })
 const addressList = ref<AddressItem[]>([])
-const debugRes = ref<any>(null)
+const selectedAddrId = ref(0)
+
+defineExpose({ selectedAddrId })
 const cascaderOptions = ref<any[]>([])
 const rawAreas = ref<AreaNode[]>([])
 
 async function fetchList() {
   if (!props.token) return
-  try { const res: any = await userReceiptInfoList(props.token); debugRes.value = res; if (res.code === '10000') addressList.value = res.data || [] }
-  catch (e: any) { debugRes.value = e?.response?.data || e.message || String(e) }
+  try { const res: any = await userReceiptInfoList(props.token); if (res.code === '10000') {
+    addressList.value = res.data || []
+    const def = addressList.value.find(a => a.is_default_address === 1)
+    if (def) selectedAddrId.value = def.receipt_id
+    else if (addressList.value.length) selectedAddrId.value = addressList.value[0].receipt_id
+  }}
+  catch { /* */ }
 }
 async function delAddress(id: number) {
   try {
@@ -130,11 +137,11 @@ async function handleConfirm() {
       <div style="padding:12px 16px">
         <div v-if="addressList.length === 0" style="text-align:center;color:#ccc;padding:24px">暂无地址信息</div>
         <div v-for="item in addressList" :key="item.receipt_id" class="addr-card">
+          <input type="radio" name="selectedAddr" :checked="selectedAddrId === item.receipt_id" @change="selectedAddrId = item.receipt_id" style="flex-shrink:0;margin-right:12px" />
           <div class="addr-left">
             <div class="addr-row1">
               <span class="addr-name">{{ item.consignee_name }}</span>
               <span class="addr-phone">{{ item.phone }}</span>
-              <span v-if="item.is_default_address === 1" class="addr-tag">默认</span>
             </div>
             <div class="addr-row2">{{ item.province_name }}-{{ item.city_name }}-{{ item.area_name }}-{{ item.detailed_address }}</div>
           </div>
@@ -145,7 +152,6 @@ async function handleConfirm() {
           </div>
         </div>
       </div>
-      <div v-if="debugRes" style="margin:0 16px 12px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:11px;max-height:160px;overflow:auto"><pre>{{ JSON.stringify(debugRes, null, 2) }}</pre></div>
     </template>
   </div>
 

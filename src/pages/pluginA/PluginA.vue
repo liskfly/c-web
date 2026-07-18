@@ -2,6 +2,9 @@
 import { reactive, ref, computed, onMounted } from "vue";
 import InvoiceSection from './InvoiceSection.vue'
 import DeliverySection from './DeliverySection.vue'
+import { orderCreate, payCallback } from '@/api/pcb'
+import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
+import QRCode from 'qrcode'
 import {
   ElInput,
   ElSelect,
@@ -9,6 +12,7 @@ import {
   ElInputNumber,
   ElSwitch,
   ElMessage,
+  ElDialog,
 } from "element-plus";
 
 // ==================== 折叠 ====================
@@ -75,7 +79,7 @@ const form = reactive<Record<string, any>>({
 });
 
 // ==================== 数据来源追踪 ====================
-const userToken = ref('Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODQyMDMxNzYsImV4cCI6MTc4Njc5NTE3NiwiZGF0YSI6eyJ1aWQiOiIzNTMwNzEiLCJ0b2tlbiI6Ijk5ZDg1MzI4NzhhYWZmZjVlNTJiMDg2NDZhNzg2MDg3YmIwYzM2OTg5ZTJlMzRkZGNiMGNlYWIyYTk4NWUzNzEifX0.Q8S59LkMv2OCYuAnTLdT0UCi9I3Eyv8ThuZpV_e0h-U')
+const userToken = ref('')
 const userUid = ref('')
 
 const fieldSource = reactive<Record<string, string>>({})
@@ -545,16 +549,75 @@ const formDataLoaded = ref(false)
 // ==================== 接收 C++ 推送的数据 ====================
 const rawEventData = ref<any>(null)
 const quoteData = ref<any>(null)
+const qrVisible = ref(false)
+const qrCodeUrl = ref('')
+const qrExpired = ref(false)
+const qrCountdown = ref(0)
+const qrOrderNo = ref('')
+
+let pollTimer: any = null
+let countdownTimer: any = null
+
+async function refreshQrCode() {
+  qrExpired.value = false
+  const payRes: any = await pcbPayV2(userToken.value, { order_no: qrOrderNo.value })
+  if (payRes.code === '10000' && payRes.data?.order_str) {
+    qrCodeUrl.value = await QRCode.toDataURL(payRes.data.order_str)
+    startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
+  } else {
+    ElMessage.error(payRes.msg || '二维码刷新失败')
+    qrVisible.value = false
+  }
+}
+
+function clearTimers() { clearInterval(pollTimer); clearInterval(countdownTimer) }
+
+function startPollPayStatus(mergeNo: string, expireSec: number) {
+  clearInterval(pollTimer)
+  clearInterval(countdownTimer)
+  qrExpired.value = false
+  qrCountdown.value = expireSec
+  // 倒计时
+  countdownTimer = setInterval(() => {
+    qrCountdown.value--
+    if (qrCountdown.value <= 0) { clearInterval(countdownTimer); qrExpired.value = true }
+  }, 1000)
+  pollTimer = setInterval(async () => {
+    try {
+      const res: any = await getPcbOrderStatusV2(userToken.value, { merge_order_no: mergeNo })
+      if (res.code === '10000') {
+        const status = res.data?.pay_status
+        if (status === 1) {
+          ElMessage.success('支付成功'); clearInterval(pollTimer); clearInterval(countdownTimer)
+          await payCallback(userToken.value, { taskId: taskId.value, order_no: qrOrderNo.value, isPayed: true })
+          qrVisible.value = false
+        }
+        else if (status === 2) { ElMessage.error('支付失败'); clearInterval(pollTimer); clearInterval(countdownTimer); qrVisible.value = false }
+      } else { ElMessage.error(res.msg || '查询支付状态失败') }
+    } catch { /* */ }
+  }, 1000)
+}
+
+function orderPayload() {
+  const p: Record<string, any> = {}
+  for (const key of Object.keys(form)) {
+    const raw = fieldRawData[key]
+    const src = userModified.value.has(key) ? 'user' : (fieldSource[key] || 'user')
+    p[key] = { ...(raw || {}), value: form[key], source: src }
+  }
+  if (stackupRows.value.length) p['stackupTable'] = { value: stackupRows.value, source: 'user' }
+  if (impRows.value.length) p['impedanceTable'] = { value: impRows.value, source: 'user' }
+  return p
+}
 
 onMounted(() => {
-  window.addEventListener('QtMessage', (event: any) => {
+  window.addEventListener('QtMessage', async (event: any) => {
     const detail = event.detail
     if (!detail || typeof detail !== 'object') return
 
-    if (detail.taskId) taskId.value = detail.taskId
-
     const rn = detail.returnName
     if (rn === 'token' && detail.elecnest_user_info) {
+      if (detail.taskId) taskId.value = detail.taskId
       userToken.value = detail.elecnest_user_info.elecnest_user_token || ''
       userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''
       return
@@ -568,8 +631,38 @@ onMounted(() => {
       }
       return
     }
-    if (rn === 'order') {
-      ElMessage(detail.code === 200 ? 'success' : 'error', detail.message || '')
+    if (rn === 'ordered' && detail.code === 200) {
+      const addrId = deliveryRef.value?.selectedAddrId
+      const invId = invoiceRef.value?.selectedInvoiceId
+      const invType = invoiceRef.value?.invoiceType
+      if (!addrId || !invId) { ElMessage.warning('请先选中收货地址和发票信息'); return }
+      try {
+        const orderRes: any = await orderCreate(userToken.value, {
+          task_id: taskId.value,
+          receiver_id: addrId,
+          invoice_id: invId,
+          invoice_type: Number(invType),
+          freight_price: 0,
+          pcbQuoteParams: orderPayload(),
+        })
+        if (orderRes.code === 200 && orderRes.data?.order_no) {
+          const payRes: any = await pcbPayV2(userToken.value, { order_no: orderRes.data.order_no })
+          if (payRes.code === '10000' && payRes.data?.order_str) {
+            qrCodeUrl.value = await QRCode.toDataURL(payRes.data.order_str)
+            qrVisible.value = true
+            qrOrderNo.value = orderRes.data.order_no
+            startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire || 300)
+          } else {
+            ElMessage.error(payRes.msg || '支付接口失败')
+          }
+        } else {
+          ElMessage.error(orderRes.message || '订单创建失败')
+        }
+      } catch { /* */ }
+      return
+    }
+    if (rn === 'ordered') {
+      ElMessage.error(detail.message || '订单提交失败')
       return
     }
     // 无 returnName：表单渲染数据
@@ -1884,6 +1977,18 @@ onMounted(() => {
           <pre class="debug-json">{{ JSON.stringify(rawEventData, null, 2) }}</pre>
         </details>
       </div> -->
+    <el-dialog v-model="qrVisible" title="扫码支付" width="360px" :close-on-click-modal="false" @close="clearTimers()">
+      <div style="text-align:center;position:relative">
+        <img v-if="qrCodeUrl" :src="qrCodeUrl" style="width:280px;height:280px" :style="{ opacity: qrExpired ? 0.2 : 1 }" />
+        <p v-if="!qrExpired" style="margin-top:12px;color:#666;font-size:12px">请使用手机扫码完成支付（{{ Math.floor(qrCountdown / 60) }}:{{ String(qrCountdown % 60).padStart(2, '0') }}）</p>
+        <!-- 过期蒙层 -->
+        <div v-if="qrExpired" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.6)">
+          <p style="color:#f53f3f;font-size:14px;font-weight:600;margin-bottom:12px">二维码已过期</p>
+          <el-button type="primary" size="small" @click="refreshQrCode()">重新加载</el-button>
+        </div>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 

@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('@/pages/pluginA/PluginA.vue'),
     },
     {
+      path: '/plugin-a-test',
+      name: 'pluginATest',
+      component: () => import('@/pages/pluginA/PluginATEST.vue'),
+    },
+    {
       path: '/plugin-b',
       name: 'pluginB',
       component: () => import('@/pages/pluginB/PluginB.vue'),

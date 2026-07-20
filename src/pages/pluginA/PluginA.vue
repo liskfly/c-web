@@ -572,11 +572,12 @@ async function refreshQrCode() {
 
 function clearTimers() { clearInterval(pollTimer); clearInterval(countdownTimer) }
 
-function startPollPayStatus(mergeNo: string, expireSec: number) {
+function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
   clearInterval(pollTimer)
   clearInterval(countdownTimer)
   qrExpired.value = false
-  qrCountdown.value = expireSec
+  const now = Math.floor(Date.now() / 1000)
+  qrCountdown.value = Math.max(0, expireTimestamp - now)
   // 倒计时
   countdownTimer = setInterval(() => {
     qrCountdown.value--
@@ -651,7 +652,7 @@ onMounted(() => {
             qrCodeUrl.value = await QRCode.toDataURL(payRes.data.order_str)
             qrVisible.value = true
             qrOrderNo.value = orderRes.data.order_no
-            startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire || 300)
+            startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire || (Math.floor(Date.now() / 1000) + 300))
           } else {
             ElMessage.error(payRes.msg || '支付接口失败')
           }
@@ -677,10 +678,10 @@ onMounted(() => {
 <template>
   <div class="page-wrapper">
     <!-- 加载遮罩 -->
-    <!-- <div v-if="!formDataLoaded" class="loading-overlay">
+    <div v-if="!formDataLoaded" class="loading-overlay">
       <div class="loading-spinner"></div>
       <p>等待数据加载...</p>
-    </div> -->
+    </div>
 
     <div class="form-box">
       <table class="param-table">
@@ -2000,13 +2001,6 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   padding: 12px;
-}
-.form-box {
-  width: 100%;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
 }
 .form-box {
   width: 100%;

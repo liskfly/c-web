@@ -3,6 +3,15 @@ import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { renderAsync } from 'docx-preview'
 import { VueOfficePptx } from 'vue3-office-preview'
 import 'vue3-office-preview/lib/style.css'
+
+// Qt WebView 兼容：Array.prototype.at() polyfill（ES2022）
+if (!Array.prototype.at) {
+  ;(Array.prototype as any).at = function (index: number) {
+    const i = Math.trunc(index) || 0
+    return this[i < 0 ? this.length + i : i]
+  }
+}
+
 import SpreadsheetPreview from '@datagridxl/spreadsheet-preview'
 
 type FileViewType = 'pdf' | 'word' | 'excel' | 'ppt' | 'text' | 'unsupported'
@@ -235,7 +244,7 @@ onMounted(() => {
     if (!detail?.base64) return
     // detail = { base64: "...", name: "xxx", type: "pdf", json: { page: 1, bbox: [[90,229,152,241]] } }
     if (detail.json) {
-      const h = detail.json
+      const h = typeof detail.json === 'string' ? JSON.parse(detail.json) : detail.json
       currentHighlight = {
         page: h.page || 1,
         boxes: (h.bbox || []).map((b: number[]) => ({

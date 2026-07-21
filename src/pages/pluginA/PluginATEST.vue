@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, computed, onMounted, watch } from 'vue'
+import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import InvoiceSection from './InvoiceSection.vue'
 import DeliverySection from './DeliverySection.vue'
 import { orderCreate, payCallback } from '@/api/pcb'
@@ -157,6 +157,87 @@ const quoteData = ref<any>(null)
 const formDataLoaded = ref(false)
 const tokenReady = ref(false)
 
+// Qt 桥接请求的等待状态：避免接口尚未返回时重复点击。
+const BRIDGE_RESPONSE_TIMEOUT_MS = 30_000
+let quoteResponseTimer: number | null = null
+let orderResponseTimer: number | null = null
+let orderWorkflowPending = false
+let awaitingQuoteResponse = false
+let awaitingOrderedResponse = false
+let componentActive = true
+
+function clearQuoteResponseTimer() {
+  if (quoteResponseTimer !== null) window.clearTimeout(quoteResponseTimer)
+  quoteResponseTimer = null
+}
+
+function clearOrderResponseTimer() {
+  if (orderResponseTimer !== null) window.clearTimeout(orderResponseTimer)
+  orderResponseTimer = null
+}
+
+function beginQuoteRequest() {
+  clearQuoteResponseTimer()
+  awaitingQuoteResponse = true
+  submitting.value = true
+  quoteResponseTimer = window.setTimeout(() => {
+    quoteResponseTimer = null
+    ElMessage.warning('报价仍在处理中，请勿重复提交；如长时间无响应请重新打开页面')
+  }, BRIDGE_RESPONSE_TIMEOUT_MS)
+}
+
+function finishQuoteRequest() {
+  clearQuoteResponseTimer()
+  awaitingQuoteResponse = false
+  submitting.value = false
+}
+
+function beginOrderRequest() {
+  clearOrderResponseTimer()
+  awaitingOrderedResponse = true
+  ordering.value = true
+  orderResponseTimer = window.setTimeout(() => {
+    orderResponseTimer = null
+    ElMessage.warning('订单仍在处理中，请勿重复提交；如长时间无响应请重新打开页面')
+  }, BRIDGE_RESPONSE_TIMEOUT_MS)
+}
+
+function finishOrderRequest() {
+  clearOrderResponseTimer()
+  awaitingOrderedResponse = false
+  ordering.value = false
+}
+
+function reportError(context: string, error: unknown, message: string) {
+  console.error(`[${context}]`, error)
+  if (componentActive) ElMessage.error(message)
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'yes', '是'].includes(normalized)) return true
+    if (['false', '0', 'no', '否', ''].includes(normalized)) return false
+  }
+  return Boolean(value)
+}
+
+function formatMoney(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '--'
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : '--'
+}
+
+function normalizeExpireTimestamp(value: unknown): number {
+  const now = Math.floor(Date.now() / 1000)
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return now + 300
+  // 同时兼容秒级与毫秒级 Unix 时间戳。
+  return Math.floor(numeric > 1_000_000_000_000 ? numeric / 1000 : numeric)
+}
+
 const labelMap: Record<string, string> = {
   pcbFile: 'PCB资料', layerCount: '板子层数', pcsSizeWidth: 'PCS尺寸(水平)', pcsSizeHeight: 'PCS尺寸(垂直)',
   dimensionTolerance: '外形公差', quantity: '板子数量', deliveryUnit: '交货单位', panelTypesCount: '合拼种数', setMethod: 'Set拼板方式',
@@ -190,8 +271,8 @@ function applyFieldData(data: Record<string, any>) {
   for(const k of Object.keys(data)) {
     if(!(k in form)) continue
     const e=data[k]; const v=e?.value??e; const s=e?.source??''
-    if(boolF.includes(k)) form[k]=Boolean(v)
-    else if(numF.includes(k)) form[k]=Number(v)||0
+    if(boolF.includes(k)) form[k]=toBoolean(v)
+    else if(numF.includes(k)) { const numeric=Number(v); form[k]=Number.isFinite(numeric)?numeric:0 }
     else if(arrF.includes(k)) form[k]=Array.isArray(v)?v:(v?[v]:[])
     else form[k]=v
     if(s) fieldSource[k]=s; fieldRawData[k]=e
@@ -210,9 +291,10 @@ function validateForm(): boolean {
   return true
 }
 
-async function submitForm() {
+function submitForm() {
+  if (submitting.value) return
   if (!validateForm()) return
-  submitting.value = true
+  beginQuoteRequest()
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
   fk.forEach(k => { params[k] = form[k] })
@@ -221,14 +303,20 @@ async function submitForm() {
   if (impRows.value.length) params['impedanceTable'] = impRows.value
   const payload = { taskId: taskId.value, pcbQuoteParams: params }
   const win = window as any
-  console.log('[我→QT] html-button-message (报价):', JSON.stringify(payload, null, 2))
-  if (win.QtBridge?.send) win.QtBridge.send('html-button-message', payload)
-  setTimeout(() => { submitting.value = false }, 500)
+  console.debug('[我→QT] 报价请求', { taskId: taskId.value, fieldCount: Object.keys(params).length })
+  try {
+    if (!win.QtBridge?.send) throw new Error('QtBridge.send 不可用')
+    win.QtBridge.send('html-button-message', payload)
+  } catch (error) {
+    finishQuoteRequest()
+    reportError('报价桥接', error, '无法提交报价，请检查客户端连接')
+  }
 }
 
-async function submitOrder() {
+function submitOrder() {
+  if (ordering.value) return
   if (!validateForm()) return
-  ordering.value = true
+  beginOrderRequest()
   const params: Record<string, any> = {}
   for (const key of Object.keys(form)) {
     const raw = fieldRawData[key]
@@ -241,42 +329,133 @@ async function submitOrder() {
   if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
   const payload = params
   const win = window as any
-  console.log('[我→QT] html-button-message (订单):', JSON.stringify(payload, null, 2))
-  if (win.QtBridge?.send) win.QtBridge.send('html-button-message', payload)
-  setTimeout(() => { ordering.value = false }, 500)
+  console.debug('[我→QT] 订单请求', { fieldCount: Object.keys(params).length })
+  try {
+    if (!win.QtBridge?.send) throw new Error('QtBridge.send 不可用')
+    win.QtBridge.send('html-button-message', payload)
+  } catch (error) {
+    finishOrderRequest()
+    reportError('订单桥接', error, '无法提交订单，请检查客户端连接')
+  }
 }
 
 // ==================== QR Code ====================
-const qrVisible = ref(false); const qrCodeUrl = ref(''); const qrExpired = ref(false); const qrCountdown = ref(0); const qrOrderNo = ref('')
-let pollTimer: any = null; let countdownTimer: any = null
+const qrVisible = ref(false); const qrCodeUrl = ref(''); const qrExpired = ref(false); const qrCountdown = ref(0); const qrOrderNo = ref(''); const qrRefreshing = ref(false)
+let pollTimer: number | null = null
+let countdownTimer: number | null = null
+let pollRequestPending = false
+let pollSessionId = 0
+let pollErrorNotified = false
 
-function clearTimers() { clearInterval(pollTimer); clearInterval(countdownTimer) }
+function clearTimers() {
+  // 会话编号失效后，已经发出的旧请求即使返回也不能更新当前二维码。
+  pollSessionId++
+  if (pollTimer !== null) window.clearInterval(pollTimer)
+  if (countdownTimer !== null) window.clearInterval(countdownTimer)
+  pollTimer = null
+  countdownTimer = null
+  pollRequestPending = false
+  qrRefreshing.value = false
+}
+
+function isQrFlowActive(sessionId: number, orderNo: string): boolean {
+  return componentActive && qrVisible.value && pollSessionId === sessionId && qrOrderNo.value === orderNo
+}
 
 async function refreshQrCode() {
+  if (qrRefreshing.value) return
+  clearTimers()
+  const refreshSessionId = pollSessionId
+  const refreshOrderNo = qrOrderNo.value
+  qrRefreshing.value = true
   qrExpired.value = false
-  const payRes: any = await pcbPayV2(userToken.value, { order_no: qrOrderNo.value })
-  if (payRes.code === '10000' && payRes.data?.order_str) {
-    qrCodeUrl.value = await QRCode.toDataURL(payRes.data.order_str)
-    startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
-  } else { ElMessage.error(payRes.msg || '刷新失败'); qrVisible.value = false }
+  try {
+    const payRes: any = await pcbPayV2(userToken.value, { order_no: refreshOrderNo })
+    if (!isQrFlowActive(refreshSessionId, refreshOrderNo)) return
+    if (String(payRes.code) === '10000' && payRes.data?.order_str) {
+      const nextQrCodeUrl = await QRCode.toDataURL(payRes.data.order_str)
+      if (!isQrFlowActive(refreshSessionId, refreshOrderNo)) return
+      qrCodeUrl.value = nextQrCodeUrl
+      startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
+    } else {
+      ElMessage.error(payRes.msg || '刷新失败')
+      qrVisible.value = false
+    }
+  } catch (error) {
+    if (isQrFlowActive(refreshSessionId, refreshOrderNo)) {
+      qrExpired.value = true
+      reportError('刷新二维码', error, '刷新二维码失败，请稍后重试')
+    }
+  } finally {
+    if (pollSessionId === refreshSessionId) qrRefreshing.value = false
+  }
 }
 
 function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
-  clearInterval(pollTimer); clearInterval(countdownTimer)
+  clearTimers()
   qrExpired.value = false
-  // expireTimestamp 为 Unix 时间戳（秒），计算剩余秒数
-  const now = Math.floor(Date.now() / 1000)
-  qrCountdown.value = Math.max(0, expireTimestamp - now)
-  countdownTimer = setInterval(() => { qrCountdown.value--; if (qrCountdown.value <= 0) { clearInterval(countdownTimer); clearInterval(pollTimer); qrExpired.value = true } }, 1000)
-  pollTimer = setInterval(async () => {
+  pollErrorNotified = false
+  const sessionId = pollSessionId
+  const expireAt = normalizeExpireTimestamp(expireTimestamp)
+  qrCountdown.value = Math.max(0, expireAt - Math.floor(Date.now() / 1000))
+
+  if (qrCountdown.value <= 0) {
+    qrExpired.value = true
+    return
+  }
+
+  countdownTimer = window.setInterval(() => {
+    qrCountdown.value = Math.max(0, expireAt - Math.floor(Date.now() / 1000))
+    if (qrCountdown.value <= 0) {
+      clearTimers()
+      qrExpired.value = true
+    }
+  }, 1000)
+
+  const pollPayStatus = async () => {
+    if (pollRequestPending || sessionId !== pollSessionId) return
+    pollRequestPending = true
     try {
       const res: any = await getPcbOrderStatusV2(userToken.value, { merge_order_no: mergeNo })
-      if (res.code === '10000') {
-        if (res.data?.pay_status === 1) { ElMessage.success('支付成功'); clearInterval(pollTimer); clearInterval(countdownTimer); await payCallback(userToken.value, { taskId: taskId.value, order_no: qrOrderNo.value, isPayed: true }); qrVisible.value = false }
-        else if (res.data?.pay_status === 2) { ElMessage.error('支付失败'); clearInterval(pollTimer); clearInterval(countdownTimer); qrVisible.value = false }
-      } else { ElMessage.error(res.msg || '查询失败') }
-    } catch { /* */ }
-  }, 1000)
+      if (sessionId !== pollSessionId) return
+
+      if (String(res.code) !== '10000') {
+        if (!pollErrorNotified) {
+          pollErrorNotified = true
+          ElMessage.warning(res.msg || '支付状态查询暂时失败，将继续重试')
+        }
+        return
+      }
+
+      pollErrorNotified = false
+      const payStatus = Number(res.data?.pay_status)
+      if (payStatus === 1) {
+        clearTimers()
+        ElMessage.success('支付成功')
+        try {
+          await payCallback(userToken.value, { taskId: taskId.value, order_no: qrOrderNo.value, isPayed: true })
+        } catch (error) {
+          reportError('支付结果同步', error, '支付已成功，但订单状态同步失败，请联系客服')
+        } finally {
+          qrVisible.value = false
+        }
+      } else if (payStatus === 2) {
+        clearTimers()
+        ElMessage.error('支付失败')
+        qrVisible.value = false
+      }
+    } catch (error) {
+      console.error('[支付状态轮询]', error)
+      if (!pollErrorNotified && sessionId === pollSessionId) {
+        pollErrorNotified = true
+        ElMessage.warning('支付状态查询异常，将继续重试')
+      }
+    } finally {
+      if (sessionId === pollSessionId) pollRequestPending = false
+    }
+  }
+
+  pollTimer = window.setInterval(() => { void pollPayStatus() }, 1000)
 }
 
 function orderPayload() {
@@ -289,34 +468,133 @@ function orderPayload() {
 }
 
 // ==================== QtMessage ====================
-onMounted(() => {
-  window.addEventListener('QtMessage', async (event: any) => {
-    const detail = event.detail
-    console.log('[QT→我]', JSON.stringify(detail, null, 2))
-    if (!detail || typeof detail !== 'object') return
-    const rn = detail.returnName
-    if (rn === 'token' && detail.elecnest_user_info) { if (detail.taskId) taskId.value = detail.taskId; userToken.value = detail.elecnest_user_info.elecnest_user_token || ''; userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''; tokenReady.value = true; return }
-    if (rn === 'quote') { if (detail.code === 200) { quoteData.value = detail.data; ElMessage.success(detail.message || '报价成功') } else { ElMessage.error(detail.message || '报价失败') }; return }
-    if (rn === 'ordered' && detail.code === 200) {
-      const addrId = deliveryRef.value?.selectedAddrId; const invId = invoiceRef.value?.selectedInvoiceId; const invType = invoiceRef.value?.invoiceType
-      if (!addrId || !invId) { ElMessage.warning('请先选中收货地址和发票信息'); return }
-      try {
-        const orderRes: any = await orderCreate(userToken.value, { task_id: taskId.value, receiver_id: addrId, invoice_id: invId, invoice_type: Number(invType), freight_price: 0, pcbQuoteParams: orderPayload() })
-        if (orderRes.code === 200 && orderRes.data?.order_no) {
-          const payRes: any = await pcbPayV2(userToken.value, { order_no: orderRes.data.order_no })
-          if (payRes.code === '10000' && payRes.data?.order_str) { qrCodeUrl.value = await QRCode.toDataURL(payRes.data.order_str); qrVisible.value = true; qrOrderNo.value = orderRes.data.order_no; startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire || (Math.floor(Date.now() / 1000) + 300)) }
-          else { ElMessage.error(payRes.msg || '支付接口失败') }
-        } else { ElMessage.error(orderRes.message || '订单创建失败') }
-      } catch { /* */ }
+async function handleQtMessage(event: Event) {
+  if (!componentActive) return
+  const detail = (event as CustomEvent<any>).detail
+  if (!detail || typeof detail !== 'object') return
+
+  const rn = detail.returnName
+  // 仅记录消息类型和状态，不输出 Token 或完整业务数据。
+  // console.debug('[QT消息]', { returnName: rn, code: detail.code })
+  console.log('[QT消息]', { returnName: rn, code: detail })
+
+  if (rn === 'token' && detail.elecnest_user_info) {
+    if (detail.taskId) taskId.value = detail.taskId
+    userToken.value = detail.elecnest_user_info.elecnest_user_token || ''
+    userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''
+    tokenReady.value = Boolean(userToken.value)
+    if (!tokenReady.value) ElMessage.error('身份验证失败：未获取到有效 Token')
+    return
+  }
+
+  if (rn === 'quote') {
+    if (!awaitingQuoteResponse) {
+      console.warn('[报价流程] 已忽略未匹配或重复的 quote 消息')
       return
     }
-    if (rn === 'ordered') { ElMessage.error(detail.message || '订单提交失败'); return }
-    // 表单数据
-    const data = detail.parameters || detail
-    applyFieldData(data)
-    formDataLoaded.value = true
-    ElMessage.success('数据已同步')
-  })
+    finishQuoteRequest()
+    if (Number(detail.code) === 200) {
+      quoteData.value = detail.data
+      ElMessage.success(detail.message || '报价成功')
+    } else {
+      ElMessage.error(detail.message || '报价失败')
+    }
+    return
+  }
+
+  if (rn === 'ordered') {
+    // 每次前端提交只允许消费一个 ordered 响应，拒绝重复、陈旧和主动注入的消息。
+    if (!awaitingOrderedResponse || orderWorkflowPending) {
+      console.warn('[订单流程] 已忽略未匹配或重复的 ordered 消息')
+      return
+    }
+    awaitingOrderedResponse = false
+    clearOrderResponseTimer()
+
+    if (Number(detail.code) !== 200) {
+      finishOrderRequest()
+      ElMessage.error(detail.message || '订单提交失败')
+      return
+    }
+
+    // 已收到 Qt 响应，但在订单和支付接口完成前继续保持按钮禁用。
+    orderWorkflowPending = true
+    const addrId = deliveryRef.value?.selectedAddrId
+    const invId = invoiceRef.value?.selectedInvoiceId
+    const invType = invoiceRef.value?.invoiceType
+    if (!addrId || !invId) {
+      orderWorkflowPending = false
+      finishOrderRequest()
+      ElMessage.warning('请先选中收货地址和发票信息')
+      return
+    }
+
+    // 新订单开始后立即使旧二维码刷新和旧轮询失效。
+    clearTimers()
+    qrVisible.value = false
+    qrCodeUrl.value = ''
+    qrOrderNo.value = ''
+
+    try {
+      const orderRes: any = await orderCreate(userToken.value, {
+        task_id: taskId.value,
+        receiver_id: addrId,
+        invoice_id: invId,
+        invoice_type: Number(invType),
+        freight_price: 0,
+        pcbQuoteParams: orderPayload(),
+      })
+      if (!componentActive || !orderWorkflowPending) return
+
+      if (Number(orderRes.code) !== 200 || !orderRes.data?.order_no) {
+        ElMessage.error(orderRes.message || '订单创建失败')
+        return
+      }
+
+      const orderNo = orderRes.data.order_no
+      const payRes: any = await pcbPayV2(userToken.value, { order_no: orderNo })
+      if (!componentActive || !orderWorkflowPending) return
+      if (String(payRes.code) !== '10000' || !payRes.data?.order_str) {
+        ElMessage.error(payRes.msg || '支付接口失败')
+        return
+      }
+
+      const nextQrCodeUrl = await QRCode.toDataURL(payRes.data.order_str)
+      if (!componentActive || !orderWorkflowPending) return
+      qrCodeUrl.value = nextQrCodeUrl
+      qrOrderNo.value = orderNo
+      qrVisible.value = true
+      startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
+    } catch (error) {
+      reportError('订单支付流程', error, '订单处理失败，请稍后重试')
+    } finally {
+      orderWorkflowPending = false
+      finishOrderRequest()
+    }
+    return
+  }
+
+  // 表单数据
+  const data = detail.parameters || detail
+  applyFieldData(data)
+  formDataLoaded.value = true
+  ElMessage.success('数据已同步')
+}
+
+onMounted(() => {
+  componentActive = true
+  window.addEventListener('QtMessage', handleQtMessage)
+})
+
+onUnmounted(() => {
+  componentActive = false
+  window.removeEventListener('QtMessage', handleQtMessage)
+  clearTimers()
+  clearQuoteResponseTimer()
+  clearOrderResponseTimer()
+  awaitingQuoteResponse = false
+  awaitingOrderedResponse = false
+  orderWorkflowPending = false
 })
 </script>
 
@@ -342,12 +620,14 @@ onMounted(() => {
             <tr><td>交货单位<span class="req">*</span></td><td><el-select v-model="form.deliveryUnit" size="small" style="width:100%"><el-option v-for="v in opts.deliveryUnit" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('deliveryUnit')">{{ sourceLabel('deliveryUnit') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('deliveryUnit')" class="btn-view graphic" @click="handleViewClick('deliveryUnit')">图形</button><button v-if="showDocBtn('deliveryUnit')" class="btn-view doc" @click="handleViewClick('deliveryUnit')">加工文档</button></td></tr>
             <tr><td>合拼种数<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.panelTypesCount" :min="1" :max="100" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('panelTypesCount')">{{ sourceLabel('panelTypesCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('panelTypesCount')" class="btn-view graphic" @click="handleViewClick('panelTypesCount')">图形</button><button v-if="showDocBtn('panelTypesCount')" class="btn-view doc" @click="handleViewClick('panelTypesCount')">加工文档</button></td></tr>
             <tr><td>Set拼板方式<span class="req">*</span></td><td><el-select v-model="form.setMethod" size="small" style="width:100%"><el-option v-for="v in opts.setMethodAll" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('setMethod')">{{ sourceLabel('setMethod') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setMethod')" class="btn-view graphic" @click="handleViewClick('setMethod')">图形</button><button v-if="showDocBtn('setMethod')" class="btn-view doc" @click="handleViewClick('setMethod')">加工文档</button></td></tr>
+              <template v-if="showPanelFields">
               <tr><td>拼板个数(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelHorizontal" :min="1" :max="500" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelHorizontal')">{{ sourceLabel('clientPanelHorizontal') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelHorizontal')" class="btn-view graphic" @click="handleViewClick('clientPanelHorizontal')">图形</button><button v-if="showDocBtn('clientPanelHorizontal')" class="btn-view doc" @click="handleViewClick('clientPanelHorizontal')">加工文档</button></td></tr>
               <tr><td>拼板个数(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelVertical" :min="1" :max="500" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelVertical')">{{ sourceLabel('clientPanelVertical') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelVertical')" class="btn-view graphic" @click="handleViewClick('clientPanelVertical')">图形</button><button v-if="showDocBtn('clientPanelVertical')" class="btn-view doc" @click="handleViewClick('clientPanelVertical')">加工文档</button></td></tr>
               <tr><td>Set尺寸(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeWidth" :min="0" :max="571.5" :precision="2" size="small" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeWidth')">{{ sourceLabel('setSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeWidth')" class="btn-view graphic" @click="handleViewClick('setSizeWidth')">图形</button><button v-if="showDocBtn('setSizeWidth')" class="btn-view doc" @click="handleViewClick('setSizeWidth')">加工文档</button></td></tr>
               <tr><td>Set尺寸(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeHeight" :min="0" :max="571.5" :precision="2" size="small" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeHeight')">{{ sourceLabel('setSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeHeight')" class="btn-view graphic" @click="handleViewClick('setSizeHeight')">图形</button><button v-if="showDocBtn('setSizeHeight')" class="btn-view doc" @click="handleViewClick('setSizeHeight')">加工文档</button></td></tr>
               <tr><td>外形要求<span class="req">*</span></td><td><el-select v-model="form.clientPanelSeparation" size="small" style="width:100%"><el-option v-for="v in opts.clientPanelSeparation" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('clientPanelSeparation')">{{ sourceLabel('clientPanelSeparation') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelSeparation')" class="btn-view graphic" @click="handleViewClick('clientPanelSeparation')">图形</button><button v-if="showDocBtn('clientPanelSeparation')" class="btn-view doc" @click="handleViewClick('clientPanelSeparation')">加工文档</button></td></tr>
               <tr><td>是否接受打叉板</td><td><el-select v-model="form.acceptXOut" size="small" style="width:100%"><el-option v-for="v in opts.acceptXOut" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('acceptXOut')">{{ sourceLabel('acceptXOut') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('acceptXOut')" class="btn-view graphic" @click="handleViewClick('acceptXOut')">图形</button><button v-if="showDocBtn('acceptXOut')" class="btn-view doc" @click="handleViewClick('acceptXOut')">加工文档</button></td></tr>
+              </template>
           </template>
 
           <!-- 二、工艺信息 -->
@@ -366,8 +646,10 @@ onMounted(() => {
             <tr><td>内层基铜厚度<span class="req">*</span></td><td><el-autocomplete v-model="form.innerCopperThickness" :fetch-suggestions="queryInnerCopperThickness" size="small" style="width:100%" placeholder="输入搜索内层基铜厚度" clearable @select="(item: any) => { form.innerCopperThickness = item.value }"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }} oz</div></template></el-autocomplete><span class="unit">oz</span></td><td class="td-src"><span :class="sourceClass('innerCopperThickness')">{{ sourceLabel('innerCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('innerCopperThickness')" class="btn-view graphic" @click="handleViewClick('innerCopperThickness')">图形</button><button v-if="showDocBtn('innerCopperThickness')" class="btn-view doc" @click="handleViewClick('innerCopperThickness')">加工文档</button></td></tr>
             <tr><td>外层最小线宽<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.minTraceWidthOuter" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceWidthOuter')">{{ sourceLabel('minTraceWidthOuter') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceWidthOuter')" class="btn-view graphic" @click="handleViewClick('minTraceWidthOuter')">图形</button><button v-if="showDocBtn('minTraceWidthOuter')" class="btn-view doc" @click="handleViewClick('minTraceWidthOuter')">加工文档</button></td></tr>
             <tr><td>外层最小线距<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.minTraceSpacingOuter" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingOuter')">{{ sourceLabel('minTraceSpacingOuter') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingOuter')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingOuter')">图形</button><button v-if="showDocBtn('minTraceSpacingOuter')" class="btn-view doc" @click="handleViewClick('minTraceSpacingOuter')">加工文档</button></td></tr>
+              <template v-if="hasInnerLayer">
               <tr><td>内层最小线宽<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.minTraceWidthInner" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceWidthInner')">{{ sourceLabel('minTraceWidthInner') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceWidthInner')" class="btn-view graphic" @click="handleViewClick('minTraceWidthInner')">图形</button><button v-if="showDocBtn('minTraceWidthInner')" class="btn-view doc" @click="handleViewClick('minTraceWidthInner')">加工文档</button></td></tr>
               <tr><td>内层最小线距<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.minTraceSpacingInner" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingInner')">{{ sourceLabel('minTraceSpacingInner') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingInner')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingInner')">图形</button><button v-if="showDocBtn('minTraceSpacingInner')" class="btn-view doc" @click="handleViewClick('minTraceSpacingInner')">加工文档</button></td></tr>
+              </template>
             <tr><td>最小孔径<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.minHoleSize" :min="0" :precision="3" size="small" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('minHoleSize')">{{ sourceLabel('minHoleSize') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minHoleSize')" class="btn-view graphic" @click="handleViewClick('minHoleSize')">图形</button><button v-if="showDocBtn('minHoleSize')" class="btn-view doc" @click="handleViewClick('minHoleSize')">加工文档</button></td></tr>
 			            <tr><td>孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span></td><td class="td-src"><span class="badge empty">--</span></td><td class="td-view"></td></tr>
 			            <tr><td>通孔孔数（SET或PCS）</td><td><el-input-number :controls="false" v-model="form.holeCount" :min="0" :precision="0" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('holeCount')">{{ sourceLabel('holeCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCount')" class="btn-view graphic" @click="handleViewClick('holeCount')">图形</button><button v-if="showDocBtn('holeCount')" class="btn-view doc" @click="handleViewClick('holeCount')">加工文档</button></td></tr>
@@ -395,7 +677,7 @@ onMounted(() => {
             <tr><td>验收标准<span class="req">*</span></td><td><el-select v-model="form.acceptanceStandard" size="small" style="width:100%"><el-option v-for="v in opts.acceptanceStandard" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('acceptanceStandard')">{{ sourceLabel('acceptanceStandard') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('acceptanceStandard')" class="btn-view graphic" @click="handleViewClick('acceptanceStandard')">图形</button><button v-if="showDocBtn('acceptanceStandard')" class="btn-view doc" @click="handleViewClick('acceptanceStandard')">加工文档</button></td></tr>
             <tr><td>阻抗控制<span class="req">*</span></td><td><el-select v-model="form.impedanceControl" size="small" style="width:100%"><el-option v-for="v in opts.impedanceControl" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('impedanceControl')">{{ sourceLabel('impedanceControl') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('impedanceControl')" class="btn-view graphic" @click="handleViewClick('impedanceControl')">图形</button><button v-if="showDocBtn('impedanceControl')" class="btn-view doc" @click="handleViewClick('impedanceControl')">加工文档</button></td></tr>
             <tr><td>标记要求<span class="req">*</span></td><td><el-select v-model="form.markingRequirements" size="small" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.markingRequirements" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('markingRequirements')">{{ sourceLabel('markingRequirements') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('markingRequirements')" class="btn-view graphic" @click="handleViewClick('markingRequirements')">图形</button><button v-if="showDocBtn('markingRequirements')" class="btn-view doc" @click="handleViewClick('markingRequirements')">加工文档</button></td></tr>
-            <tr><td>周期格式<span class="req">*</span></td><td><el-select v-model="form.periodFormat" size="small" style="width:100%"><el-option v-for="v in opts.periodFormat" :key="v" :label="v" :value="v" /></el-select></td><td></td><td>--</td></tr>
+            <tr><td>周期格式<span class="req">*</span></td><td><el-select v-model="form.periodFormat" size="small" style="width:100%"><el-option v-for="v in opts.periodFormat" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('periodFormat')">{{ sourceLabel('periodFormat') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('periodFormat')" class="btn-view graphic" @click="handleViewClick('periodFormat')">图形</button><button v-if="showDocBtn('periodFormat')" class="btn-view doc" @click="handleViewClick('periodFormat')">加工文档</button></td></tr>
             <tr><td>测试要求<span class="req">*</span></td><td><el-select v-model="form.testRequirements" size="small" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.testRequirements" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('testRequirements')">{{ sourceLabel('testRequirements') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('testRequirements')" class="btn-view graphic" @click="handleViewClick('testRequirements')">图形</button><button v-if="showDocBtn('testRequirements')" class="btn-view doc" @click="handleViewClick('testRequirements')">加工文档</button></td></tr>
             <tr><td>出货报告<span class="req">*</span></td><td><el-select v-model="form.shippingReports" size="small" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.shippingReports" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('shippingReports')">{{ sourceLabel('shippingReports') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('shippingReports')" class="btn-view graphic" @click="handleViewClick('shippingReports')">图形</button><button v-if="showDocBtn('shippingReports')" class="btn-view doc" @click="handleViewClick('shippingReports')">加工文档</button></td></tr>
             <tr><td>特殊工艺<span class="req">*</span></td><td><el-select v-model="form.specialProcesses" size="small" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.specialProcesses" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('specialProcesses')">{{ sourceLabel('specialProcesses') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('specialProcesses')" class="btn-view graphic" @click="handleViewClick('specialProcesses')">图形</button><button v-if="showDocBtn('specialProcesses')" class="btn-view doc" @click="handleViewClick('specialProcesses')">加工文档</button></td></tr>
@@ -422,13 +704,13 @@ onMounted(() => {
       <div class="quote-card">
         <div class="qc-title">💰 报价摘要</div>
         <div class="qc-grid">
-          <div class="qc-row"><span>制板费</span><span class="qcv">¥{{ quoteData?.boardBaseFee?.toFixed(2) || '--' }}</span></div>
-          <div class="qc-row"><span>工程费</span><span class="qcv">¥{{ quoteData?.engineeringFee?.toFixed(2) || '--' }}</span></div>
-          <div class="qc-row"><span>特殊工艺加价</span><span class="qcv">¥{{ quoteData?.specialProcessFee?.toFixed(2) || '--' }}</span></div>
+          <div class="qc-row"><span>制板费</span><span class="qcv">¥{{ formatMoney(quoteData?.boardBaseFee) }}</span></div>
+          <div class="qc-row"><span>工程费</span><span class="qcv">¥{{ formatMoney(quoteData?.engineeringFee) }}</span></div>
+          <div class="qc-row"><span>特殊工艺加价</span><span class="qcv">¥{{ formatMoney(quoteData?.specialProcessFee) }}</span></div>
           <div class="qc-row"><span>加急费</span><span class="qcv">¥{{ quoteData?.expediteFee || '--' }}</span></div>
-          <div class="qc-row"><span>单价</span><span class="qcv">{{ quoteData ? '¥' + quoteData.price?.toFixed(2) + ' / PCS' : '--' }}</span></div>
+          <div class="qc-row"><span>单价</span><span class="qcv">{{ quoteData ? '¥' + formatMoney(quoteData.price) + ' / PCS' : '--' }}</span></div>
         </div>
-        <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + quoteData.totalFee?.toFixed(2) : '--' }}</span></div>
+        <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + formatMoney(quoteData.totalFee) : '--' }}</span></div>
         <button class="btn-submit" :disabled="submitting || !tokenReady" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
         <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady" @click="submitOrder">{{ ordering ? '提交中...' : '提交订单' }}</button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
@@ -436,13 +718,13 @@ onMounted(() => {
     </div>
 
     <!-- QR -->
-    <el-dialog v-model="qrVisible" title="扫码支付" width="360px" :close-on-click-modal="false" @close="clearTimers()">
+    <el-dialog v-model="qrVisible" title="扫码支付" width="360px" :close-on-click-modal="false" @close="clearTimers">
       <div style="text-align:center;position:relative">
         <img v-if="qrCodeUrl" :src="qrCodeUrl" style="width:280px;height:280px" :style="{ opacity: qrExpired ? 0.2 : 1 }" />
         <p v-if="!qrExpired" style="margin-top:12px;color:#666;font-size:12px">请扫码支付（{{ Math.floor(qrCountdown/60) }}:{{ String(qrCountdown%60).padStart(2,'0') }}）</p>
         <div v-if="qrExpired" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.6)">
           <p style="color:#f53f3f;font-size:14px;font-weight:600;margin-bottom:12px">二维码已过期</p>
-          <el-button type="primary" size="small" @click="refreshQrCode()">重新加载</el-button>
+          <el-button type="primary" size="small" :loading="qrRefreshing" :disabled="qrRefreshing" @click="refreshQrCode">重新加载</el-button>
         </div>
       </div>
     </el-dialog>

@@ -1,0 +1,65 @@
+字段ID | 字段名称 | 默认=默认值 | 单位=单位 | 是否必填
+layerCount | 板子层数 | 默认=是 | 单位=2 | 单选
+blindVia | 盲埋孔 | 默认=是 | 单位=否 | 单选
+boardWidth | 板子尺寸 (水平) | 默认=是 | 单位=mm | 输入
+boardHeight | 板子尺寸 (垂直) | 默认=是 | 单位=mm | 输入
+dimensionTolerance | 外形公差 | 默认=是 | 单位=+/-0.10mm | 单选
+quantity | 板子数量 | 默认=是 | 单位=10 | 输入
+deliveryUnit | 交货单位 | 默认=是 | 单位=PCS | 单选
+panelTypesCount | 合拼种数 | 默认=是 | 单位=1 | 输入
+panelMethod | 拼板方式 | 默认=是 | 单位=单片无拼板 | 单选
+clientPanelHorizontal | 拼板个数 (水平) | 默认=当“拼板方式”为“客户拼板”时必填 | 单位=1 | 输入
+clientPanelVertical | 拼板个数 (垂直) | 默认=当“拼板方式”为“客户拼板”时必填 | 单位=1 | 输入
+clientPanelSeparation | 外形要求 | 默认=当“拼板方式”为“客户拼板”时必填 | 单位=拼板&邮票孔交货 | 单选
+acceptXOut | 是否接受打叉板 | 默认=当“拼板方式”为“客户拼板”时必填 | 单位=是 | 单选
+materialType | 板材种类 | 默认=是 | 单位=FR4 | 单选
+materialTg | 高TG | 默认=是 | 单位=否 | 单选
+halogenFree | 无卤板材 | 默认=是 | 单位=否 | 单选
+maxWarpage | 翘曲度 | 默认=是 | 单位=0.005 | 单选
+boardThickness | 成品板厚 | 默认=1.6mm | 单位=mm | 是
+thicknessTolerance | 板厚公差 | 默认=是 | 单位=+/-10% | 单选
+outerCopperThickness | 外层完成铜厚度 | 默认=35 | 单位=um | 是
+innerCopperThickness | 内层基铜厚度 | 默认=1 | 单位=oz | 是
+minTraceWidthOuter | 外层最小线宽 | 默认=输入 | 单位=是 | -
+minHoleSize | 最小孔径 | 默认=输入 | 单位=是 | -
+holeCopperThickness | 最小孔铜 | 默认=18 | 单位=um | 是
+solderMaskColor | 阻焊颜色 | 默认=是 | 单位=绿色 | 单选
+silkscreenColor | 字符颜色 | 默认=是 | 单位=白色字符 | 单选
+surfaceFinish | 表面处理 | 默认=是 | 单位=无铅喷锡 | 单选
+enigGoldThickness | 最小沉金金厚 | 默认=当“表面处理”为“沉金”时必填 | 单位=0.05 | 单选
+viaProcess | 过孔工艺 | 默认=是 | 单位=按Gerber文件 | 单选
+goldFingerType | 金手指类型 | 默认=是 | 单位=无 | 单选
+goldFingerThickness | 金手指金厚 | 默认=0.38 | 单位=um | 当“金手指类型”不为“无”时必填
+goldFingerChamferAngle | 倒角角度 | 默认=当“金手指类型”不为“无”时必填 | 单位=30° | 单选
+goldFingerChamferDepth | 倒角深度 | 默认=输入 | 单位=mm | 当“金手指类型”不为“无”时显示
+goldFingerChamferRemaining | 金手指倒角余厚 | 默认=输入 | 单位=mm | 当“金手指类型”不为“无”时显示
+acceptanceStandard | 验收标准 | 默认=是 | 单位=IPC 2 | 单选
+impedanceControl | 阻抗控制 | 默认=是 | 单位=否 | 单选
+markingRequirements | 标记要求 | 默认=是 | 单位=不需要 | 多选
+periodFormat | 周期格式 | 默认=当“标记要求”选择“周期标记”时必填 | 单位=WWYY | 单选
+testRequirements | 测试要求 | 默认=是 | 单位=不需要 | 多选
+shippingReports | 出货报告 | 默认=是 | 单位=不需要 | 多选
+specialProcesses | 特殊工艺 | 默认=是 | 单位=不需要 | 多选
+confirmProductionFile | 光绘确认 | 默认=是 | 单位=否 | 单选
+copperThickness | 铜厚 | 默认=是 | 单位=mil | 输入
+dielectricThickness | 介质厚度 | 默认=是 | 单位=mil | 输入
+isCoated | 盖油 | 默认=是 | 单位=否 | 单选
+lineWidth | 线宽 | 默认=是 | 单位=mil | 输入
+lineSpacing | 线距 | 默认=阻抗类型为以下项目时必填：
+1.	外层差分
+2.	外层差分共面地
+3.	内层差分(双层屏蔽)
+4.	内层差分(单层屏蔽)
+5.	内层差分共面地(双层屏蔽)
+6.	内层层间差分(双层屏蔽)
+7.	内层差分1B2A(双层屏蔽)
+8.	内层差分1B2A(单层屏蔽) | 单位=mil | 输入
+lineToCopper | 线铜 | 默认=阻抗类型为以下项目时必填：
+1.	外层单端共面地
+2.	外层差分共面地
+3.	内层单端共面地(双层屏蔽)
+4.	内层差分共面地(双层屏蔽) | 单位=mil | 输入
+impTarget | 阻抗要求 | 默认=是 | 单位=ohm | 输入
+impTol | 公差(%) | 默认=10 | 单位=% | 是
+price | 单价 | 默认=& | 单位=¥ | 输入
+7.2 | 是,当是USD币别交易时，需依照汇率进行计算 | 默认=& | 单位=¥ | 输入

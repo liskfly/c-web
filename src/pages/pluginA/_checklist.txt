@@ -1,0 +1,188 @@
+字段ID | 字段名称 | 默认=默认值 | 是否必填
+pcbName | 生产型号 | 默认=输入 | 
+layerCount | 板子层数 | 默认=是 | 单选
+blindVia | 盲埋孔 | 默认=是 | 单选
+boardWidth | 板子尺寸 (水平) | 默认=是 | 输入
+boardHeight | 板子尺寸 (垂直) | 默认=是 | 输入
+dimensionTolerance | 外形公差 | 默认=是 | 单选
+quantity | 板子数量 | 默认=是 | 输入
+deliveryUnit | 交货单位 | 默认=是 | 单选
+panelTypesCount | 合拼种数 | 默认=是 | 输入
+panelMethod | 拼板方式 | 默认=是 | 单选
+clientPanelHorizontal | 拼板个数 (水平) | 默认=当“拼板方式”为“客户拼板”时必填 | 输入
+clientPanelVertical | 拼板个数 (垂直) | 默认=当“拼板方式”为“客户拼板”时必填 | 输入
+clientPanelSeparation | 外形要求 | 默认=当“拼板方式”为“客户拼板”时必填 | 单选
+acceptXOut | 是否接受打叉板 | 默认=当“拼板方式”为“客户拼板”时必填 | 单选
+materialType | 板材种类 | 默认=是 | 单选
+materialTg | 高TG | 默认=是 | 单选
+halogenFree | 无卤板材 | 默认=是 | 单选
+maxWarpage | 翘曲度 | 默认=是 | 单选
+boardThickness | 成品板厚 | 默认=1.6mm | 是
+thicknessTolerance | 板厚公差 | 默认=是 | 单选
+outerCopperThickness | 外层完成铜厚度 | 默认=35 | 是
+innerCopperThickness | 内层基铜厚度 | 默认=1 | 是
+minTraceWidthOuter | 外层最小线宽 | 默认=输入 | -
+minTraceSpacingOuter | 外层最小间距 | 默认=输入 | 
+minTraceWidthInner | 内层最小线宽 | 默认=输入 | 
+minTraceSpacingInner | 内层最小间距 | 默认=输入 | 
+minHoleSize | 最小孔径 | 默认=输入 | -
+holeCopperThickness | 最小孔铜 | 默认=18 | 是
+solderMaskColor | 阻焊颜色 | 默认=是 | 单选
+silkscreenColor | 字符颜色 | 默认=是 | 单选
+surfaceFinish | 表面处理 | 默认=是 | 单选
+enigGoldThickness | 最小沉金金厚 | 默认=当“表面处理”为“沉金”时必填 | 单选
+viaProcess | 过孔工艺 | 默认=是 | 单选
+goldFingerType | 金手指类型 | 默认=是 | 单选
+goldFingerThickness | 金手指金厚 | 默认=0.38 | 当“金手指类型”不为“无”时必填
+goldFingerChamferAngle | 倒角角度 | 默认=当“金手指类型”不为“无”时必填 | 单选
+goldFingerChamferDepth | 倒角深度 | 默认=输入 | 当“金手指类型”不为“无”时显示
+goldFingerChamferRemaining | 金手指倒角余厚 | 默认=输入 | 当“金手指类型”不为“无”时显示
+acceptanceStandard | 验收标准 | 默认=是 | 单选
+impedanceControl | 阻抗控制 | 默认=是 | 单选
+impedanceTable | 阻抗控制要求 | 默认=“阻抗控制”如果为“是”，显示阻抗控制要求表格 | 
+markingRequirements | 标记要求 | 默认=是 | 多选
+periodFormat | 周期格式 | 默认=当“标记要求”选择“周期标记”时必填 | 单选
+testRequirements | 测试要求 | 默认=是 | 多选
+shippingReports | 出货报告 | 默认=是 | 多选
+specialProcesses | 特殊工艺 | 默认=是 | 多选
+confirmProductionFile | 光绘确认 | 默认=是 | 单选
+material | 材料 | 默认=单选/下拉 | 
+pcbMaterialType | 类型 | 默认=如果材料是CU时，取值为空且不允许编辑
+
+如果材料是PP时，取值如下：
+IT-158BS
+NY2150
+S1000HB
+S1151GB
+S1150GB
+S1165B
+IT-180A
+TU-75P
+S1000-2MB
+S1000-2B
+TU-768
+NY2170
+S1190B
+RO4450F
+TU86P HF
+IT-170GT
+IT-170GRA1
+IT-170GRA2
+TU-87P SLK
+TU-87P SLK SP
+N4203-13
+N4203-13EP
+N4203-13SI
+N4203-13EPSI
+R-5620
+R-5620S
+R-5620SS
+R-5680GE
+R-5680N
+Synamic6B
+FR408HR
+S7439 B
+S7439HW B
+Synamic6 B
+EM-888 B
+EM-888 BK
+R-5670
+R-5670G
+R-5670N
+R-5670K
+R-5670NE
+IT-968 B
+IT-958G
+IT-968SE B
+NY6300P
+85N
+VT-901
+如果类型是CORE时，取值如下：
+IT-158
+NY2150
+S1000H
+S1151G
+S1150G
+S1165
+IT-180A
+TU-752
+S1000-2M
+S1000-2
+TU-768
+NY2170
+S1190
+RO4725JXR
+RO4730G3
+Aerowave300
+RO4533
+RO4350B
+RO4835
+RO4350
+RO4233
+RO4360
+RO4360G2
+RO4534
+RO4535
+RO4725
+RO4730
+RO4003C
+S7136H
+S7135（不做压合）
+TU862 HF
+IT-170GT
+IT-170GRA1
+IT-170GRA2
+TU-872 SLK
+TU-872 SLK SP
+N4103-13
+N4103-13EP
+N4103-13SI
+N4103-13EPSI
+R-5725/M4
+R-5725S/M4S
+R-5725SS
+R-5785GE
+R-5785N/M7N
+Synamic6
+FR408HR
+S7439
+S7439HW
+Synamic6N
+EM-888
+EM-888K
+R-5575
+R-5775
+R-5775G/M6G
+R-5775N/M6N
+R-5775K/M6K
+R-5775NE
+IT-968
+IT-958G
+IT-968 SE
+NY6300
+85N
+VT-901 | 
+copperThickness | 铜厚 | 默认=是 | 输入
+dielectricThickness | 介质厚度 | 默认=是 | 输入
+dk | 介电常数 | 默认=仅材料为PP或CORE时，允许填写 | 
+impType | 阻抗类型 | 默认=单选/下拉 | 
+isCoated | 盖油 | 默认=是 | 单选
+lineWidth | 线宽 | 默认=是 | 输入
+lineSpacing | 线距 | 默认=阻抗类型为以下项目时必填：
+1.	外层差分
+2.	外层差分共面地
+3.	内层差分(双层屏蔽)
+4.	内层差分(单层屏蔽)
+5.	内层差分共面地(双层屏蔽)
+6.	内层层间差分(双层屏蔽)
+7.	内层差分1B2A(双层屏蔽)
+8.	内层差分1B2A(单层屏蔽) | 输入
+lineToCopper | 线铜 | 默认=阻抗类型为以下项目时必填：
+1.	外层单端共面地
+2.	外层差分共面地
+3.	内层单端共面地(双层屏蔽)
+4.	内层差分共面地(双层屏蔽) | 输入
+impTarget | 阻抗要求 | 默认=是 | 输入
+impTol | 公差(%) | 默认=10 | 是
+price | 单价 | 默认=& | 输入
+7.2 | 是,当是USD币别交易时，需依照汇率进行计算 | 默认=& | 输入

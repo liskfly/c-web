@@ -12,21 +12,21 @@ const sections = reactive<Record<string, boolean>>({ basic: true, process: true,
 
 // ==================== 表单 V7.0 ====================
 const form = reactive<Record<string, any>>({
-  pcbName: "", pcbFile: "130", layerCount: 4, blindVia: false,
-  pcsSizeWidth: 120.00, pcsSizeHeight: 120.00, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
-  panelTypesCount: 1, setMethod: "单片加工艺边", clientPanelHorizontal: 1, clientPanelVertical: 1,
-  setSizeWidth: 120.00, setSizeHeight: 116.00, clientPanelSeparation: "拼板ROUT+V-CUT交货", acceptXOut: false,
-  materialType: "FR4", materialBrand: "生益", materialVersion: "S1000-2M", materialTg: true, halogenFree: false,
+  pcbName: "", pcbFile: "", layerCount: 2, blindVia: false,
+  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
+  panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
+  setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板&邮票孔交货", acceptXOut: false,
+  materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: false, halogenFree: false,
   maxWarpage: "0.75%", boardThickness: 1.6, thicknessTolerance: "+/-10%",
   outerCopperThickness: 35, outerBaseCopperThickness: 18, innerCopperThickness: 1,
-  minTraceWidthOuter: 5.00, minTraceSpacingOuter: 5.00, minTraceWidthInner: 5.00, minTraceSpacingInner: 5.00,
-  minHoleSize: 0.200, holeCount: 500, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
-  surfaceFinish: "沉金", enigGoldThickness: 0.05, immersionGoldArea: 10.0,
-  viaProcess: "阻焊塞孔", goldFingerType: "常规金手指", goldFingerThickness: 0.38,
-  goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.80, goldFingerChamferRemaining: 0.60,
+  minTraceWidthOuter: null, minTraceSpacingOuter: null, minTraceWidthInner: null, minTraceSpacingInner: null,
+  minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
+  surfaceFinish: "无铅喷锡", enigGoldThickness: 0.05, immersionGoldArea: 20.0,
+  viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.38,
+  goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
   acceptanceStandard: "IPC 2", impedanceControl: false,
   markingRequirements: ["不需要"] as string[], periodFormat: "WWYY",
-  testRequirements: ["飞针测试"] as string[], shippingReports: ["最终产品检查报告"] as string[], specialProcesses: ["不需要"] as string[],
+  testRequirements: ["不需要"] as string[], shippingReports: ["不需要"] as string[], specialProcesses: ["不需要"] as string[],
   confirmProductionFile: false,
 })
 
@@ -155,6 +155,7 @@ const submitting = ref(false)
 const ordering = ref(false)
 const quoteData = ref<any>(null)
 const formDataLoaded = ref(false)
+const tokenReady = ref(false)
 
 const labelMap: Record<string, string> = {
   pcbFile: 'PCB资料', layerCount: '板子层数', pcsSizeWidth: 'PCS尺寸(水平)', pcsSizeHeight: 'PCS尺寸(垂直)',
@@ -229,10 +230,15 @@ async function submitOrder() {
   if (!validateForm()) return
   ordering.value = true
   const params: Record<string, any> = {}
-  Object.keys(form).forEach(k => { params[k] = form[k] })
-  params['drillDensity'] = computedDrillDensity.value
-  if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
-  if (impRows.value.length) params['impedanceTable'] = impRows.value
+  for (const key of Object.keys(form)) {
+    const raw = fieldRawData[key]
+    const src = fieldSource[key] || 'user'
+    params[key] = { ...(raw || {}), value: form[key], source: src }
+  }
+  // 计算字段
+  params['drillDensity'] = { value: computedDrillDensity.value, source: 'computed' }
+  if (stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
+  if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
   const payload = params
   const win = window as any
   console.log('[我→QT] html-button-message (订单):', JSON.stringify(payload, null, 2))
@@ -261,7 +267,7 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
   // expireTimestamp 为 Unix 时间戳（秒），计算剩余秒数
   const now = Math.floor(Date.now() / 1000)
   qrCountdown.value = Math.max(0, expireTimestamp - now)
-  countdownTimer = setInterval(() => { qrCountdown.value--; if (qrCountdown.value <= 0) { clearInterval(countdownTimer); qrExpired.value = true } }, 1000)
+  countdownTimer = setInterval(() => { qrCountdown.value--; if (qrCountdown.value <= 0) { clearInterval(countdownTimer); clearInterval(pollTimer); qrExpired.value = true } }, 1000)
   pollTimer = setInterval(async () => {
     try {
       const res: any = await getPcbOrderStatusV2(userToken.value, { merge_order_no: mergeNo })
@@ -289,7 +295,7 @@ onMounted(() => {
     console.log('[QT→我]', JSON.stringify(detail, null, 2))
     if (!detail || typeof detail !== 'object') return
     const rn = detail.returnName
-    if (rn === 'token' && detail.elecnest_user_info) { if (detail.taskId) taskId.value = detail.taskId; userToken.value = detail.elecnest_user_info.elecnest_user_token || ''; userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''; return }
+    if (rn === 'token' && detail.elecnest_user_info) { if (detail.taskId) taskId.value = detail.taskId; userToken.value = detail.elecnest_user_info.elecnest_user_token || ''; userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''; tokenReady.value = true; return }
     if (rn === 'quote') { if (detail.code === 200) { quoteData.value = detail.data; ElMessage.success(detail.message || '报价成功') } else { ElMessage.error(detail.message || '报价失败') }; return }
     if (rn === 'ordered' && detail.code === 200) {
       const addrId = deliveryRef.value?.selectedAddrId; const invId = invoiceRef.value?.selectedInvoiceId; const invType = invoiceRef.value?.invoiceType
@@ -316,10 +322,8 @@ onMounted(() => {
 
 <template>
   <div class="page">
-    <div v-if="!formDataLoaded" class="loading-overlay">
-      <div class="loading-spinner"></div>
-      <p>等待数据加载...</p>
-    </div>
+    <div v-if="!formDataLoaded" class="loading-bar"></div>
+    <div v-if="formDataLoaded && !tokenReady" class="token-banner">请等待身份验证完成，当前仅可编辑表单...</div>
     <div class="form-box">
       <table class="param-table">
         <thead><tr><th style="width:24%">项目类型名称</th><th style="width:34%">参数值</th><th style="width:22%">来源</th><th style="width:20%">查看</th></tr></thead>
@@ -409,8 +413,10 @@ onMounted(() => {
       </table>
 
       <!-- 六、开票 / 七、配送 -->
-      <InvoiceSection ref="invoiceRef" v-model:expanded="sections.invoice" :uid="userUid" :token="userToken" />
-      <DeliverySection ref="deliveryRef" v-model:expanded="sections.delivery" :token="userToken" />
+      <div :class="{ 'section-disabled': !tokenReady }">
+        <InvoiceSection ref="invoiceRef" v-model:expanded="sections.invoice" :uid="userUid" :token="userToken" />
+        <DeliverySection ref="deliveryRef" v-model:expanded="sections.delivery" :token="userToken" />
+      </div>
 
       <!-- 报价 -->
       <div class="quote-card">
@@ -423,8 +429,8 @@ onMounted(() => {
           <div class="qc-row"><span>单价</span><span class="qcv">{{ quoteData ? '¥' + quoteData.price?.toFixed(2) + ' / PCS' : '--' }}</span></div>
         </div>
         <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + quoteData.totalFee?.toFixed(2) : '--' }}</span></div>
-        <button class="btn-submit" :disabled="submitting" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
-        <button class="btn-submit btn-order" :disabled="ordering || !quoteData" @click="submitOrder">{{ ordering ? '提交中...' : '提交订单' }}</button>
+        <button class="btn-submit" :disabled="submitting || !tokenReady" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
+        <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady" @click="submitOrder">{{ ordering ? '提交中...' : '提交订单' }}</button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
       </div>
     </div>
@@ -493,14 +499,17 @@ onMounted(() => {
 .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 .qc-note { font-size: 11px; color: #aaa; text-align: center; margin: 6px 0 0; }
 
-.loading-overlay {
-  position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 999;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 16px; color: #666; font-size: 14px;
+.loading-bar {
+  position: fixed; top: 0; left: 0; height: 2px; z-index: 9999;
+  background: linear-gradient(90deg, #2756ff, #4360df, #2756ff);
+  background-size: 200% 100%;
+  animation: loading-slide 1.5s linear infinite;
 }
-.loading-spinner {
-  width: 40px; height: 40px; border: 3px solid #e5e6eb;
-  border-top-color: #2756ff; border-radius: 50%; animation: spin 0.8s linear infinite;
+@keyframes loading-slide {
+  0% { width: 0; left: 0; }
+  50% { width: 60%; left: 20%; }
+  100% { width: 0; left: 100%; }
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+.token-banner { text-align: center; padding: 8px 16px; background: #fff7e6; color: #d46b08; font-size: 12px; border-bottom: 1px solid #ffd591; }
+.section-disabled { pointer-events: none; opacity: 0.5; }
 </style>

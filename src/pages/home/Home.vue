@@ -24,7 +24,7 @@ const plugins = [
 
 <template>
   <div class="home">
-    <h1>Autolibs 插件中心</h1>
+    <h1>asem 插件中心</h1>
     <p class="subtitle">Bridge 状态：<span class="status">{{ bridgeStatus }}</span></p>
 
     <div class="plugin-list">

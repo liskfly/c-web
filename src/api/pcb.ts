@@ -31,3 +31,39 @@ export function payCallback(token: string, data: {
   })
 }
 
+/** 更新订单状态 */
+export function updateOrderStatus(data: { taskId: string }) {
+  return request({
+    url: '/proxy/asem/elecnest/UpdateOrderStatus',
+    method: 'post',
+    data,
+  })
+}
+
+/** 获取旧报价 */
+export function getOrderPriceQuery(data: { task_id: string }) {
+  return request({
+    url: '/proxy/asem/elecnest/OrderPriceQuery',
+    method: 'post',
+    data,
+  })
+}
+
+/** 获取线上报价参数 */
+export function getOnlineQuoteParamsInfo(data: { task_id: string }) {
+  return request({
+    url: '/proxy/asem/pcb/getOnlineQuoteParamsInfo',
+    method: 'post',
+    data,
+  })
+}
+
+/** 获取报价信息（离线） */
+export function getQuoteInfoOffline(data: { taskId: string; pcbQuoteParams: Record<string, any> }) {
+  return request({
+    url: '/proxy/asem/pcb/getQuoteInfoOffline',
+    method: 'post',
+    data,
+  })
+}
+

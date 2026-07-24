@@ -14,7 +14,7 @@ if (!Array.prototype.at) {
 
 import SpreadsheetPreview from '@datagridxl/spreadsheet-preview'
 
-type FileViewType = 'pdf' | 'word' | 'excel' | 'ppt' | 'text' | 'unsupported'
+type FileViewType = 'pdf' | 'word' | 'excel' | 'ppt' | 'text' | 'image' | 'unsupported'
 
 const fileName = ref('')
 const fileType = ref<FileViewType>('unsupported')
@@ -23,6 +23,7 @@ const error = ref('')
 const loading = ref(false)
 const displayUrl = ref('')
 const textContent = ref('')
+const imageSrc = ref('')
 const iframeRef = ref<HTMLIFrameElement>()
 const docxContainer = ref<HTMLElement>()
 
@@ -37,6 +38,7 @@ const wordExts = ['docx', 'doc', 'rtf']
 const pptExts = ['pptx', 'ppt']
 const textExts = ['txt']
 const pdfExts = ['pdf']
+const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico']
 
 function detectFileType(ext: string): FileViewType {
   const t = ext.toLowerCase()
@@ -45,6 +47,7 @@ function detectFileType(ext: string): FileViewType {
   if (excelExts.includes(t)) return 'excel'
   if (pptExts.includes(t)) return 'ppt'
   if (textExts.includes(t)) return 'text'
+  if (imageExts.includes(t)) return 'image'
   return 'unsupported'
 }
 
@@ -74,6 +77,13 @@ function getMime(ext: string): string {
   if (t === 'csv') return 'text/csv'
   if (pptExts.includes(t)) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
   if (t === 'txt') return 'text/plain'
+  if (['jpg', 'jpeg'].includes(t)) return 'image/jpeg'
+  if (t === 'png') return 'image/png'
+  if (t === 'gif') return 'image/gif'
+  if (t === 'bmp') return 'image/bmp'
+  if (t === 'webp') return 'image/webp'
+  if (t === 'svg') return 'image/svg+xml'
+  if (t === 'ico') return 'image/x-icon'
   return 'application/octet-stream'
 }
 
@@ -89,7 +99,8 @@ function waitForPdfApp(win: any): Promise<any> {
   })
 }
 
-let currentHighlight: { page: number; boxes: { x: number; y: number; w: number; h: number }[] } | null = null
+// bbox 存储格式：[x0, y0, x1, y1][] — PyMuPDF 坐标（左上原点，Y向下，PDF point）
+let currentHighlight: { page: number; bboxes: number[][] } | null = null
 
 async function handlePdfIframeLoad() {
   const iframe = iframeRef.value
@@ -109,9 +120,13 @@ async function handlePdfIframeLoad() {
 
 function drawHighlightBoxes(app: any, win: any) {
   if (!currentHighlight) return
-  const { page, boxes } = currentHighlight
-  const pageView = app.pdfViewer.getPageView(page - 1)
+  const pageView = app.pdfViewer.getPageView(currentHighlight.page - 1)
   if (!pageView?.div) return
+
+  // PDF.js 视口：包含了当前缩放比例
+  const viewport = pageView.viewport as any
+  // 页高（PDF 用户空间，原点左下）单位 PDF point
+  const pageHeight = pageView.pdfPage?.view?.[3] ?? viewport.viewBox?.[3] ?? 792
 
   const pageDiv = pageView.div as HTMLElement
   if (win.getComputedStyle(pageDiv).position === 'static') {
@@ -127,11 +142,27 @@ function drawHighlightBoxes(app: any, win: any) {
   }
   layer.innerHTML = ''
 
-  boxes.forEach(b => {
+  for (const b of currentHighlight.bboxes) {
+    // 跳过非法框
+    if (!b || b.length !== 4) continue
+    const [x0, y0, x1, y1] = b.map(Number)
+    if (![x0, y0, x1, y1].every(Number.isFinite)) continue
+
+    // 1. PyMuPDF → PDF 用户空间：翻转 Y（PyMuPDF 左上原点，PDF.js 左下原点）
+    const pdfRect = [x0, pageHeight - y1, x1, pageHeight - y0]
+
+    // 2. viewport 缩放转换（PDF point → 当前渲染像素）
+    const [vx0, vy0, vx1, vy1] = viewport.convertToViewportRectangle(pdfRect)
+
+    const left = vx0
+    const top = vy0
+    const width = vx1 - vx0
+    const height = vy1 - vy0
+
     const box = win.document.createElement('div')
-    box.style.cssText = `position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;border:2px solid red;background:rgba(255,0,0,0.08);box-sizing:border-box`
+    box.style.cssText = `position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;border:2px solid red;background:rgba(255,0,0,0.08);box-sizing:border-box`
     layer!.appendChild(box)
-  })
+  }
 }
 
 function loadPdf(page?: number) {
@@ -143,6 +174,13 @@ function loadPdf(page?: number) {
 function loadPpt(base64: string) {
   const clean = base64.includes(',') ? base64.split(',')[1] : base64
   pptxSrc.value = `data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,${clean}`
+}
+
+// ==================== 图片 ====================
+function loadImage(base64: string, mime: string) {
+  const clean = base64.includes(',') ? base64.split(',')[1] : base64
+  imageSrc.value = `data:${mime};base64,${clean}`
+  status.value = '已加载图片'
 }
 
 // ==================== Word → docx-preview 渲染 ====================
@@ -195,6 +233,7 @@ function loadFile(base64: string, name: string, ext: string) {
   displayUrl.value = ''
   textContent.value = ''
   pptxSrc.value = ''
+  imageSrc.value = ''
   if (docxContainer.value) docxContainer.value.innerHTML = ''
 
   try {
@@ -227,6 +266,9 @@ function loadFile(base64: string, name: string, ext: string) {
       case 'text':
         loadText(base64)
         break
+      case 'image':
+        loadImage(base64, mime)
+        break
     }
 
     status.value = '已加载'
@@ -245,12 +287,14 @@ onMounted(() => {
     // detail = { base64: "...", name: "xxx", type: "pdf", json: { page: 1, bbox: [[90,229,152,241]] } }
     if (detail.json) {
       const h = typeof detail.json === 'string' ? JSON.parse(detail.json) : detail.json
-      currentHighlight = {
-        page: h.page || 1,
-        boxes: (h.bbox || []).map((b: number[]) => ({
-          x: b[0], y: b[1],
-          w: b[2] - b[0], h: b[3] - b[1],
-        })),
+      // page === -1 表示未溯源到，不画框
+      if (h.page === -1 || h.page == null) {
+        currentHighlight = null
+      } else {
+        currentHighlight = {
+          page: h.page || 1,
+          bboxes: (h.bbox || []).filter((b: number[]) => b && b.length === 4 && b.every(Number.isFinite)),
+        }
       }
     } else {
       currentHighlight = null
@@ -305,6 +349,11 @@ onBeforeUnmount(() => {
       <!-- 纯文本 -->
       <div v-else-if="fileType === 'text'" class="text-viewer">
         <pre class="text-content">{{ textContent }}</pre>
+      </div>
+
+      <!-- 图片 -->
+      <div v-else-if="fileType === 'image'" class="image-viewer">
+        <img v-if="imageSrc" :src="imageSrc" style="max-width:100%;height:auto" alt="图片预览" />
       </div>
 
       <!-- 空状态 -->

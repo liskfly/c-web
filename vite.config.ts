@@ -22,7 +22,7 @@ export default defineConfig({
     port: 5181,
     proxy: {
       '/proxy': {
-        target: 'http://10.0.21.177:8082',
+        target: 'http://10.0.18.43:8082',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy/, ''),
       },

@@ -172,14 +172,9 @@ function handleSizeBlur() {
     form.setMethod = '客户拼板'
   }
 
-  // 拼板个数
-  if (ratio < 3) {
-    form.clientPanelHorizontal = 1
-    form.clientPanelVertical = 2
-  } else if (ratio > 3) {
-    form.clientPanelHorizontal = 1
-    form.clientPanelVertical = Math.floor(ratio)
-  }
+  // 拼板个数（每 1.25 倍加 1）
+  form.clientPanelHorizontal = 1
+  form.clientPanelVertical = Math.floor(ratio / 1.25) + 1
 }
 
 // ==================== 提交 ====================
@@ -351,9 +346,40 @@ function submitForm() {
   }
 }
 
+// 生成支付二维码，返回 { qrUrl, mergeOrderNo, timeExpire }
+async function generatePayQr(orderNo: string) {
+  const payRes: any = await pcbPayV2(userToken.value, { order_no: orderNo })
+  if (String(payRes.code) !== '10000' || !payRes.data?.order_str) {
+    throw new Error(payRes.msg || '支付接口失败')
+  }
+  return {
+    qrUrl: await QRCode.toDataURL(payRes.data.order_str),
+    mergeOrderNo: payRes.data.merge_order_no,
+    timeExpire: payRes.data.time_expire,
+  }
+}
+
 function submitOrder() {
   if (ordering.value) return
   if (!validateForm()) return
+
+  // 已有订单号，直接生成新二维码
+  if (qrOrderNo.value) {
+    ordering.value = true
+    clearTimers()
+    qrVisible.value = false
+    generatePayQr(qrOrderNo.value).then(({ qrUrl, mergeOrderNo, timeExpire }) => {
+      qrCodeUrl.value = qrUrl
+      qrVisible.value = true
+      startPollPayStatus(mergeOrderNo, timeExpire)
+      ordering.value = false
+    }).catch(err => {
+      ordering.value = false
+      ElMessage.error(err.message || '支付接口失败')
+    })
+    return
+  }
+
   beginOrderRequest()
   const params: Record<string, any> = {}
   for (const key of Object.keys(form)) {
@@ -361,7 +387,6 @@ function submitOrder() {
     const src = fieldSource[key] || 'user'
     params[key] = { ...(raw || {}), value: form[key], source: src }
   }
-  // 计算字段
   params['drillDensity'] = { value: computedDrillDensity.value, source: 'computed' }
   if (stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
   if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
@@ -408,16 +433,15 @@ async function refreshQrCode() {
   qrRefreshing.value = true
   qrExpired.value = false
   try {
-    const payRes: any = await pcbPayV2(userToken.value, { order_no: refreshOrderNo })
-    if (!isQrFlowActive(refreshSessionId, refreshOrderNo)) return
-    if (String(payRes.code) === '10000' && payRes.data?.order_str) {
-      const nextQrCodeUrl = await QRCode.toDataURL(payRes.data.order_str)
+    try {
+      const { qrUrl, mergeOrderNo, timeExpire } = await generatePayQr(refreshOrderNo)
       if (!isQrFlowActive(refreshSessionId, refreshOrderNo)) return
-      qrCodeUrl.value = nextQrCodeUrl
-      startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
-    } else {
-      ElMessage.error(payRes.msg || '刷新失败')
-      qrVisible.value = false
+      qrCodeUrl.value = qrUrl
+      startPollPayStatus(mergeOrderNo, timeExpire)
+    } catch (err: any) {
+      if (isQrFlowActive(refreshSessionId, refreshOrderNo)) {
+        ElMessage.error(err.message || '刷新失败')
+      }
     }
   } catch (error) {
     if (isQrFlowActive(refreshSessionId, refreshOrderNo)) {
@@ -590,19 +614,12 @@ async function handleQtMessage(event: Event) {
       }
 
       const orderNo = orderRes.data.order_no
-      const payRes: any = await pcbPayV2(userToken.value, { order_no: orderNo })
+      const { qrUrl, mergeOrderNo, timeExpire } = await generatePayQr(orderNo)
       if (!componentActive || !orderWorkflowPending) return
-      if (String(payRes.code) !== '10000' || !payRes.data?.order_str) {
-        ElMessage.error(payRes.msg || '支付接口失败')
-        return
-      }
-
-      const nextQrCodeUrl = await QRCode.toDataURL(payRes.data.order_str)
-      if (!componentActive || !orderWorkflowPending) return
-      qrCodeUrl.value = nextQrCodeUrl
+      qrCodeUrl.value = qrUrl
       qrOrderNo.value = orderNo
       qrVisible.value = true
-      startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
+      startPollPayStatus(mergeOrderNo, timeExpire)
     } catch (error) {
       reportError('订单支付流程', error, '订单处理失败，请稍后重试')
     } finally {
@@ -615,6 +632,7 @@ async function handleQtMessage(event: Event) {
   // 表单数据
   const data = detail.parameters || detail
   applyFieldData(data)
+  handleSizeBlur()
   formDataLoaded.value = true
   ElMessage.success('数据已同步')
 }
@@ -660,8 +678,8 @@ onUnmounted(() => {
             <tr><td>Set拼板方式<span class="req">*</span></td><td><el-select v-model="form.setMethod" size="small" style="width:100%"><el-option v-for="v in opts.setMethodAll" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('setMethod')">{{ sourceLabel('setMethod') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setMethod')" class="btn-view graphic" @click="handleViewClick('setMethod')">图形</button><button v-if="showDocBtn('setMethod')" class="btn-view doc" @click="handleViewClick('setMethod')">加工文档</button></td></tr>
               <tr><td>拼板个数(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelHorizontal" :min="1" :max="500" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelHorizontal')">{{ sourceLabel('clientPanelHorizontal') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelHorizontal')" class="btn-view graphic" @click="handleViewClick('clientPanelHorizontal')">图形</button><button v-if="showDocBtn('clientPanelHorizontal')" class="btn-view doc" @click="handleViewClick('clientPanelHorizontal')">加工文档</button></td></tr>
               <tr><td>拼板个数(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelVertical" :min="1" :max="500" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelVertical')">{{ sourceLabel('clientPanelVertical') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelVertical')" class="btn-view graphic" @click="handleViewClick('clientPanelVertical')">图形</button><button v-if="showDocBtn('clientPanelVertical')" class="btn-view doc" @click="handleViewClick('clientPanelVertical')">加工文档</button></td></tr>
-              <tr><td>Set尺寸(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeWidth" :min="0" :max="571.5" :precision="2" size="small" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeWidth')">{{ sourceLabel('setSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeWidth')" class="btn-view graphic" @click="handleViewClick('setSizeWidth')">图形</button><button v-if="showDocBtn('setSizeWidth')" class="btn-view doc" @click="handleViewClick('setSizeWidth')">加工文档</button></td></tr>
-              <tr><td>Set尺寸(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeHeight" :min="0" :max="571.5" :precision="2" size="small" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeHeight')">{{ sourceLabel('setSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeHeight')" class="btn-view graphic" @click="handleViewClick('setSizeHeight')">图形</button><button v-if="showDocBtn('setSizeHeight')" class="btn-view doc" @click="handleViewClick('setSizeHeight')">加工文档</button></td></tr>
+              <tr><td>Set尺寸(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeWidth" :min="0" :precision="2" size="small" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeWidth')">{{ sourceLabel('setSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeWidth')" class="btn-view graphic" @click="handleViewClick('setSizeWidth')">图形</button><button v-if="showDocBtn('setSizeWidth')" class="btn-view doc" @click="handleViewClick('setSizeWidth')">加工文档</button></td></tr>
+              <tr><td>Set尺寸(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeHeight" :min="0" :precision="2" size="small" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeHeight')">{{ sourceLabel('setSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeHeight')" class="btn-view graphic" @click="handleViewClick('setSizeHeight')">图形</button><button v-if="showDocBtn('setSizeHeight')" class="btn-view doc" @click="handleViewClick('setSizeHeight')">加工文档</button></td></tr>
               <tr><td>外形要求<span class="req">*</span></td><td><el-select v-model="form.clientPanelSeparation" size="small" style="width:100%"><el-option v-for="v in opts.clientPanelSeparation" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('clientPanelSeparation')">{{ sourceLabel('clientPanelSeparation') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelSeparation')" class="btn-view graphic" @click="handleViewClick('clientPanelSeparation')">图形</button><button v-if="showDocBtn('clientPanelSeparation')" class="btn-view doc" @click="handleViewClick('clientPanelSeparation')">加工文档</button></td></tr>
               <tr><td>是否接受打叉板</td><td><el-select v-model="form.acceptXOut" size="small" style="width:100%"><el-option v-for="v in opts.acceptXOut" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('acceptXOut')">{{ sourceLabel('acceptXOut') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('acceptXOut')" class="btn-view graphic" @click="handleViewClick('acceptXOut')">图形</button><button v-if="showDocBtn('acceptXOut')" class="btn-view doc" @click="handleViewClick('acceptXOut')">加工文档</button></td></tr>
           </template>

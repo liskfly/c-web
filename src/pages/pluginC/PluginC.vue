@@ -500,7 +500,7 @@ async function handleQtMessage(event: Event) {
   }
 
   if (rn === 'reviewed') {
-    updateOrderStatus({ taskId: taskId.value }).then((res: any) => {
+    updateOrderStatus({ task_id: taskId.value }).then((res: any) => {
       if (String(res.code) === '200' || String(res.code) === '10000') {
         ElMessage.success('订单提交成功')
         orderCompleted.value = true

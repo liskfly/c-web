@@ -32,7 +32,7 @@ export function payCallback(token: string, data: {
 }
 
 /** 更新订单状态 */
-export function updateOrderStatus(data: { taskId: string }) {
+export function updateOrderStatus(data: { task_id: string }) {
   return request({
     url: '/proxy/asem/elecnest/UpdateOrderStatus',
     method: 'post',

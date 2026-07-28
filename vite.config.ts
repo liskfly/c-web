@@ -21,10 +21,20 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5181,
     proxy: {
+      '/proxy-upload': {
+        target: 'http://10.0.18.43:8082',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy-upload/, ''),
+      },
       '/proxy': {
         target: 'http://10.0.18.43:8082',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy/, ''),
+      },
+      '/vm-viewer': {
+        target: 'http://10.0.70.177:80',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/vm-viewer/, ''),
       },
       '/aishop': {
         target: 'https://aishop.elecnest.cn',

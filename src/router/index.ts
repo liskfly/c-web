@@ -24,6 +24,11 @@ const router = createRouter({
       name: 'pluginC',
       component: () => import('@/pages/pluginC/PluginC.vue'),
     },
+    {
+      path: '/plugin-d',
+      name: 'pluginD',
+      component: () => import('@/pages/pluginD/PluginD.vue'),
+    },
   ],
 })
 

@@ -19,6 +19,7 @@ const plugins = [
   { path: '/plugin-a', name: '插件 A', desc: '数据仪表盘 / 监控面板' },
   { path: '/plugin-b', name: '插件 B', desc: '配置管理 / 参数设置' },
   { path: '/plugin-c', name: '插件 C', desc: '日志查看 / 调试工具' },
+  { path: '/plugin-d', name: '插件 D', desc: '外部页面预览' },
 ]
 </script>
 

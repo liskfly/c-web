@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery } from '@/api/pcb'
+import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElDialog, ElButton, ElAutocomplete } from 'element-plus'
@@ -247,6 +247,24 @@ const userUid = ref('')
 const submitting = ref(false)
 const ordering = ref(false)
 const orderCompleted = ref(false)
+const notifyLoading = ref(false)
+
+async function submitNotify() {
+  if (notifyLoading.value) return
+  notifyLoading.value = true
+  try {
+    const res: any = await submitTransferNotify({ task_id: taskId.value, user_id: 'admin' })
+    if (res.code === 200 || res.success) {
+      ElMessage.success('审核确认成功')
+    } else {
+      ElMessage.error(res.message || '确认失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('请求失败: ' + (e.message || e))
+  } finally {
+    notifyLoading.value = false
+  }
+}
 const quoteData = ref<any>(null)
 const oldQuoteData = ref<any>(null)
 const formDataLoaded = ref(false)
@@ -862,6 +880,7 @@ onUnmounted(() => {
         <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + formatMoney(quoteData.totalFee) : '--' }}</span></div>
         <button class="btn-submit" :disabled="submitting || !tokenReady" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
         <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady || orderCompleted" @click="submitOrder">{{ orderCompleted ? '已提交' : ordering ? '提交中...' : '提交审核' }}</button>
+        <button class="btn-submit" :disabled="!orderCompleted || notifyLoading" @click="submitNotify" style="background:linear-gradient(90deg,#00b42a,#00a057)">{{ notifyLoading ? '确认中...' : '审核确认' }}</button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
       </div>
     </div>

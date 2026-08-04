@@ -67,3 +67,12 @@ export function getQuoteInfoOffline(data: { taskId: string; pcbQuoteParams: Reco
   })
 }
 
+/** 审核确认通知 */
+export function submitTransferNotify(data: { task_id: string; user_id: string }) {
+  return request({
+    url: '/proxy-notify/api/v1/transfer/files/notify',
+    method: 'post',
+    data,
+  })
+}
+

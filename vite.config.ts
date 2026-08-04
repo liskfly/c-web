@@ -26,8 +26,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy-upload/, ''),
       },
+      '/proxy-notify': {
+        target: 'http://10.0.21.177:8086',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy-notify/, ''),
+      },
       '/proxy': {
-        target: 'http://10.0.18.43:8082',
+        target: 'http://10.0.21.177:8082',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy/, ''),
       },

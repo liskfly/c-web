@@ -438,18 +438,6 @@ function validateForm(): boolean {
   if (form.surfaceFinish === '沉金') alwaysRequired.push('enigGoldThickness','immersionGoldArea')
   if (form.goldFingerType !== '无') alwaysRequired.push('goldFingerThickness','goldFingerChamferAngle')
   if ((form.markingRequirements as string[]).includes('周期标记')) alwaysRequired.push('periodFormat')
-  // 阻抗校验
-  for (const row of impRows.value) {
-    if (!row.impType) continue
-    if (row.impType.includes('差分') && (row.lineSpacing === null || row.lineSpacing <= 0)) { ElMessage.warning('阻抗类型为差分时，线距不能为空'); return false }
-    if (!row.impType.includes('差分') && row.lineSpacing !== null && row.lineSpacing > 0) { ElMessage.warning('阻抗类型为单端时，线距必须为空'); return false }
-    if (row.controlLayer) {
-      const et = getExpectedRefLayer(row.controlLayer, 'top')
-      const eb = getExpectedRefLayer(row.controlLayer, 'bottom')
-      if (row.refLayerTop !== et) { ElMessage.warning(`控制层${row.controlLayer}的上参应为${et || '空'}，当前${row.refLayerTop || '空'}无效`); return false }
-      if (row.refLayerBottom !== eb) { ElMessage.warning(`控制层${row.controlLayer}的下参应为${eb || '空'}，当前${row.refLayerBottom || '空'}无效`); return false }
-    }
-  }
   const m = alwaysRequired.filter(k => { const v = form[k]; return v === '' || v === null || v === undefined || (Array.isArray(v) && v.length === 0) })
   if (m.length) { ElMessage.warning('请填写: ' + m.map(k => labelMap[k] || k).join('、')); return false }
   return true

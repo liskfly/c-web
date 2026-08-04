@@ -21,8 +21,10 @@ async function startAnalysis() {
     status.value = '正在上传文件...'
     const formData = new FormData()
     formData.append('file', selectedFile.value)
+    formData.append('is4Test', 'true')
+    formData.append('notify_deepline', 'true')
 
-    const uploadRes = await fetch('/proxy/asem/pcb/ParamsAnalysis', {
+    const uploadRes = await fetch('/proxy/asem/pcb/ParamsAnalysis4test', {
       method: 'POST',
       body: formData,
     })

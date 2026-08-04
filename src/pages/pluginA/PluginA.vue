@@ -5,7 +5,7 @@ import DeliverySection from './DeliverySection.vue'
 import { orderCreate, payCallback } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
-import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElDialog, ElButton, ElAutocomplete } from 'element-plus'
+import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElDialog, ElButton, ElAutocomplete, ElSwitch, ElTable, ElTableColumn } from 'element-plus'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true, invoice: true, delivery: true })
@@ -204,9 +204,51 @@ interface StackupRow { layerName: string; material: string; pcbMaterialType: str
 const stackupRows = ref<StackupRow[]>([])
 function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }) }
 
-interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number }
+interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number; _refTopError?: string; _refBottomError?: string }
 const impTypes = ["外层单端","外层单端共面地","外层差分","外层差分共面地","内层单端(双层屏蔽)","内层差分(双层屏蔽)","内层单端(单层屏蔽)","内层差分(单层屏蔽)","内层单端共面地(双层屏蔽)","内层差分共面地(双层屏蔽)","内层层间差分(双层屏蔽)","内层差分1B2A(双层屏蔽)","内层差分1B2A(单层屏蔽)"]
 const impRows = ref<ImpRow[]>([])
+
+const layerOptions = computed(() => Array.from({ length: Number(form.layerCount) || 0 }, (_, i) => 'L' + (i + 1)))
+const refLayerOptions = computed(() => ['', ...layerOptions.value])
+
+function onControlLayerChange(row: ImpRow) {
+  const idx = parseInt(row.controlLayer?.replace('L', '')) || 0
+  const total = Number(form.layerCount) || 0
+  if (!idx || idx < 1 || idx > total) { row.refLayerTop = ''; row.refLayerBottom = ''; row._refTopError = ''; row._refBottomError = ''; return }
+  if (idx === 1) { row.refLayerTop = ''; row.refLayerBottom = 'L2' }
+  else if (idx === total) { row.refLayerTop = 'L' + (total - 1); row.refLayerBottom = '' }
+  else { row.refLayerTop = 'L' + (idx - 1); row.refLayerBottom = 'L' + (idx + 1) }
+  validateRefLayer(row, 'top')
+  validateRefLayer(row, 'bottom')
+}
+
+function getExpectedRefLayer(controlLayer: string, type: 'top' | 'bottom'): string {
+  const c = parseInt(controlLayer.replace('L', ''))
+  const total = Number(form.layerCount) || 0
+  if (isNaN(c) || c < 1 || c > total) return ''
+  if (c === 1 && type === 'top') return ''
+  if (c === 1 && type === 'bottom') return 'L2'
+  if (c === total && type === 'top') return 'L' + (total - 1)
+  if (c === total && type === 'bottom') return ''
+  if (type === 'top') return 'L' + (c - 1)
+  return 'L' + (c + 1)
+}
+
+function validateRefLayer(row: ImpRow, type: 'top' | 'bottom') {
+  const errKey = type === 'top' ? '_refTopError' : '_refBottomError' as keyof ImpRow
+  if (!row.controlLayer) { if (type === 'top') row._refTopError = ''; else row._refBottomError = ''; return }
+  const expected = getExpectedRefLayer(row.controlLayer, type)
+  const actual = type === 'top' ? row.refLayerTop : row.refLayerBottom
+  const ctrl = row.controlLayer
+  if (actual !== expected) {
+    const label = type === 'top' ? '上参' : '下参'
+    const expLabel = expected || '空'
+    if (type === 'top') row._refTopError = `${label}应为${expLabel}`; else row._refBottomError = `${label}应为${expLabel}`
+  } else {
+    if (type === 'top') row._refTopError = ''; else row._refBottomError = ''
+  }
+}
+
 function addImpRow() { impRows.value.push({ impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 }) }
 
 // ==================== PCS/SET 尺寸联动 ====================
@@ -396,6 +438,18 @@ function validateForm(): boolean {
   if (form.surfaceFinish === '沉金') alwaysRequired.push('enigGoldThickness','immersionGoldArea')
   if (form.goldFingerType !== '无') alwaysRequired.push('goldFingerThickness','goldFingerChamferAngle')
   if ((form.markingRequirements as string[]).includes('周期标记')) alwaysRequired.push('periodFormat')
+  // 阻抗校验
+  for (const row of impRows.value) {
+    if (!row.impType) continue
+    if (row.impType.includes('差分') && (row.lineSpacing === null || row.lineSpacing <= 0)) { ElMessage.warning('阻抗类型为差分时，线距不能为空'); return false }
+    if (!row.impType.includes('差分') && row.lineSpacing !== null && row.lineSpacing > 0) { ElMessage.warning('阻抗类型为单端时，线距必须为空'); return false }
+    if (row.controlLayer) {
+      const et = getExpectedRefLayer(row.controlLayer, 'top')
+      const eb = getExpectedRefLayer(row.controlLayer, 'bottom')
+      if (row.refLayerTop !== et) { ElMessage.warning(`控制层${row.controlLayer}的上参应为${et || '空'}，当前${row.refLayerTop || '空'}无效`); return false }
+      if (row.refLayerBottom !== eb) { ElMessage.warning(`控制层${row.controlLayer}的下参应为${eb || '空'}，当前${row.refLayerBottom || '空'}无效`); return false }
+    }
+  }
   const m = alwaysRequired.filter(k => { const v = form[k]; return v === '' || v === null || v === undefined || (Array.isArray(v) && v.length === 0) })
   if (m.length) { ElMessage.warning('请填写: ' + m.map(k => labelMap[k] || k).join('、')); return false }
   return true
@@ -821,11 +875,27 @@ onUnmounted(() => {
           <tr class="section-row" @click="sections.stackup = !sections.stackup"><td colspan="4">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></td></tr>
           <tr v-if="sections.stackup"><td colspan="4"><table class="inner-table"><thead><tr><th>层号</th><th>材料</th><th>类型</th><th>铜厚(mil)</th><th>介质厚度(mil)</th><th>介电常数</th><th></th></tr></thead><tbody><tr v-for="(row,i) in stackupRows" :key="i"><td><el-input v-model="row.layerName" size="small" /></td><td><el-select v-model="row.material" size="small"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></td><td><el-input v-model="row.pcbMaterialType" size="small" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.copperThickness" size="small" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" /></td><td><el-input-number :controls="false" v-model="row.dielectricThickness" size="small" :min="0.01" :max="100" :precision="2" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.dk" size="small" :min="1" :max="50" :precision="2" :disabled="row.material==='CU'" /></td><td><button class="btn-del-row" @click="stackupRows.splice(i,1)">✕</button></td></tr></tbody></table><button class="btn-add-row" @click="addStackupRow">+ 新增一行</button></td></tr>
 
-          <!-- 五、阻抗 -->
-          <tr class="section-row" @click="sections.impedance = !sections.impedance"><td colspan="4">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></td></tr>
-          <tr v-if="sections.impedance"><td colspan="4"><table class="inner-table"><thead><tr><th>阻抗类型</th><th>控制层</th><th>上参</th><th>下参</th><th>盖油</th><th>线宽(mil)</th><th>线距(mil)</th><th>线铜(mil)</th><th>阻抗(ohm)</th><th>公差(%)</th><th></th></tr></thead><tbody><tr v-for="(row,i) in impRows" :key="i"><td><el-select v-model="row.impType" size="small"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></td><td><el-input v-model="row.controlLayer" size="small" /></td><td><el-input v-model="row.refLayerTop" size="small" /></td><td><el-input v-model="row.refLayerBottom" size="small" /></td><td><el-switch v-model="row.isCoated" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineWidth" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineSpacing" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="small" /></td><td><button class="btn-del-row" @click="impRows.splice(i,1)">✕</button></td></tr></tbody></table><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></td></tr>
         </tbody>
       </table>
+
+      <!-- 五、阻抗 -->
+      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:13px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></div>
+      <div v-if="sections.impedance" style="padding:0">
+        <el-table :data="impRows" size="small" border style="width:100%">
+          <el-table-column label="阻抗类型"><template #default="{ row }"><el-select v-model="row.impType" size="small" style="width:100%"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></template></el-table-column>
+          <el-table-column label="控制层"><template #default="{ row }"><div><el-select v-model="row.controlLayer" size="small" style="width:100%" @change="onControlLayerChange(row)"><el-option v-for="l in layerOptions" :key="l" :label="l" :value="l" /></el-select></div></template></el-table-column>
+          <el-table-column label="上参"><template #default="{ row }"><div><el-select v-model="row.refLayerTop" size="small" style="width:100%" @change="validateRefLayer(row, 'top')"><el-option v-for="l in refLayerOptions" :key="l" :label="l || '空'" :value="l" /></el-select><div v-if="row._refTopError" style="color:#f56c6c;font-size:11px;margin-top:2px;line-height:1.2">{{ row._refTopError }}</div></div></template></el-table-column>
+          <el-table-column label="下参"><template #default="{ row }"><div><el-select v-model="row.refLayerBottom" size="small" style="width:100%" @change="validateRefLayer(row, 'bottom')"><el-option v-for="l in refLayerOptions" :key="l" :label="l || '空'" :value="l" /></el-select><div v-if="row._refBottomError" style="color:#f56c6c;font-size:11px;margin-top:2px;line-height:1.2">{{ row._refBottomError }}</div></div></template></el-table-column>
+          <el-table-column label="盖油" width="60" align="center"><template #default="{ row }"><el-switch v-model="row.isCoated" size="small" /></template></el-table-column>
+          <el-table-column label="线宽(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineWidth" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="线距(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineSpacing" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="线铜(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="阻抗(ohm)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="公差(%)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="操作" width="50" align="center"><template #default="{ $index }"><button class="btn-del-row" @click="impRows.splice($index,1)">✕</button></template></el-table-column>
+        </el-table>
+        <div style="padding:6px 0"><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></div>
+      </div>
 
       <!-- 六、开票 / 七、配送 -->
       <div :class="{ 'section-disabled': !tokenReady }">

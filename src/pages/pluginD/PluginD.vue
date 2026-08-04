@@ -22,7 +22,7 @@ async function startAnalysis() {
     const formData = new FormData()
     formData.append('file', selectedFile.value)
 
-    const uploadRes = await fetch('/proxy-upload/asem/pcb/ParamsAnalysis', {
+    const uploadRes = await fetch('/proxy/asem/pcb/ParamsAnalysis', {
       method: 'POST',
       body: formData,
     })

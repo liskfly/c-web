@@ -205,7 +205,7 @@ async function handleConfirm() {
 .invoice-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; text-align: left; font-weight: 600; color: #666; }
 .invoice-table th.no-header { background: #fff; border: none; width: 160px; }
 .invoice-table td { padding: 8px 10px; border: 1px solid #f0f0f0; }
-.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 11px; cursor: pointer; }
+.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 14px; cursor: pointer; }
 
 .hint-box { background: #fffbe6; border: 1px solid #ffe58f; border-radius: 4px; padding: 10px 12px; font-size: 12px; color: #ad6800; line-height: 1.6; margin-bottom: 16px; white-space: pre-line; }
 .form-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }

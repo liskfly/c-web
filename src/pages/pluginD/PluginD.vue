@@ -24,7 +24,7 @@ async function startAnalysis() {
     formData.append('is4Test', 'true')
     formData.append('notify_deepline', 'true')
 
-    const uploadRes = await fetch('/proxy/asem/pcb/ParamsAnalysis4test', {
+    const uploadRes = await fetch('/proxy/asem/pcb/ParamsAnalysis4Test', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODQ2MTk5NjMsImV4cCI6MTc4NzIxMTk2MywiZGF0YSI6eyJ1aWQiOiIzMzczNzciLCJ0b2tlbiI6IjliNGQ1YzIzZjJmOTJlNzFmOWRiZTAwOTY4MTY1YzUwOWZhMmIyYWQyODAzY2MyNmE3YmZjYWU5NDg1MDJjMTYifX0.Vvg1NgQ9TWTGvY41UoMq4PTvgnCEk9N4yuwOU7ft4RY',

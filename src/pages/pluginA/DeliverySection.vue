@@ -189,7 +189,7 @@ async function handleConfirm() {
 .extra-title { padding: 10px 16px; font-size: 13px; font-weight: 600; color: #2756ff; background: #f7f8fc; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 .arrow { font-size: 10px; color: #999; display: inline-block; }
 .arrow.up { transform: rotate(-180deg); }
-.add-addr-btn { margin-left: auto; padding: 3px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 11px; cursor: pointer; }
+.add-addr-btn { margin-left: auto; padding: 3px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 14px; cursor: pointer; }
 .addr-card { display: flex; align-items: center; justify-content: space-between; padding: 12px; margin-bottom: 8px; border: 1px solid #e5e6eb; border-radius: 6px; background: #fafbfc; }
 .addr-left { flex: 1; min-width: 0; }
 .addr-row1 { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }

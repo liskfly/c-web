@@ -202,6 +202,43 @@ watch(() => form.holeCopperThickness, (val) => {
 // ==================== 叠层/阻抗 ====================
 interface StackupRow { layerName: string; material: string; pcbMaterialType: string; copperThickness: number | null; dielectricThickness: number | null; dk: number | null }
 const stackupRows = ref<StackupRow[]>([])
+const INNER_CU = 1.4   // 内层 1oz ≈ 1.4mil
+const OUTER_CU = 0.7  // 外层 0.5oz ≈ 0.7mil
+
+function makeCu(outer: boolean): StackupRow {
+  return { layerName: '', material: 'CU', pcbMaterialType: '', copperThickness: outer ? OUTER_CU : INNER_CU, dielectricThickness: null, dk: null }
+}
+
+const stackupScheme = ref<'normal' | 'alt'>('normal')
+
+function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
+  const rows: StackupRow[] = []
+  const M1 = scheme === 'normal' ? 'PP' : 'CORE'
+  const M2 = scheme === 'normal' ? 'CORE' : 'PP'
+  if (N === 1) {
+    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+  } else if (N === 2) {
+    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+  } else if (N >= 4 && N % 2 === 0) {
+    rows.push(makeCu(true))
+    for (let i = 0; i < N / 2 - 1; i++) {
+      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+    }
+    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+  }
+  let cuIdx = 0
+  stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
+}
+
+function toggleStackupScheme() {
+  stackupScheme.value = stackupScheme.value === 'normal' ? 'alt' : 'normal'
+  const n = Number(form.layerCount)
+  if (n >= 1) generateStackup(n, stackupScheme.value)
+}
+
+// 层数变化自动生成叠构
+watch(() => form.layerCount, (val) => { const n = Number(val); if (n >= 1) generateStackup(n, stackupScheme.value) })
+
 function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }) }
 
 interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number; _refTopError?: string; _refBottomError?: string }
@@ -858,16 +895,27 @@ onUnmounted(() => {
             <tr><td>光绘确认<span class="req">*</span></td><td><el-select v-model="form.confirmProductionFile" size="small" style="width:100%"><el-option v-for="v in opts.confirmProductionFile" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('confirmProductionFile')">{{ sourceLabel('confirmProductionFile') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('confirmProductionFile')" class="btn-view graphic" @click="handleViewClick('confirmProductionFile')">图形</button><button v-if="showDocBtn('confirmProductionFile')" class="btn-view doc" @click="handleViewClick('confirmProductionFile')">加工文档</button></td></tr>
             <tr><td colspan="4" style="padding:12px 8px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:13px;font-weight:600;color:#333">📝 备注</span></div><div style="min-height:180px;background:linear-gradient(135deg,#f8f9fb 0%,#fff 100%);border:1px solid #e8eaef;border-left:3px solid #2756ff;border-radius:6px;padding:14px 16px;color:#555;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,0.04)"><template v-if="form.remark.length"><div v-for="(msg, i) in form.remark" :key="i" style="margin-bottom:4px">{{ String(i + 1) }}. {{ (msg as string).includes('|') ? (msg as string).split('|').slice(1).join('|') : msg }}</div></template><template v-else><span style="color:#bbb">暂无备注信息</span></template></div></td></tr>
           </template>
-
-          <!-- 四、叠层 -->
-          <tr class="section-row" @click="sections.stackup = !sections.stackup"><td colspan="4">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></td></tr>
-          <tr v-if="sections.stackup"><td colspan="4"><table class="inner-table"><thead><tr><th>层号</th><th>材料</th><th>类型</th><th>铜厚(mil)</th><th>介质厚度(mil)</th><th>介电常数</th><th></th></tr></thead><tbody><tr v-for="(row,i) in stackupRows" :key="i"><td><el-input v-model="row.layerName" size="small" /></td><td><el-select v-model="row.material" size="small"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></td><td><el-input v-model="row.pcbMaterialType" size="small" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.copperThickness" size="small" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" /></td><td><el-input-number :controls="false" v-model="row.dielectricThickness" size="small" :min="0.01" :max="100" :precision="2" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.dk" size="small" :min="1" :max="50" :precision="2" :disabled="row.material==='CU'" /></td><td><button class="btn-del-row" @click="stackupRows.splice(i,1)">✕</button></td></tr></tbody></table><button class="btn-add-row" @click="addStackupRow">+ 新增一行</button></td></tr>
-
         </tbody>
       </table>
 
+         <!-- 四、叠层 -->
+      <div class="section-row" @click="sections.stackup = !sections.stackup" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:15px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></div>
+      <div v-if="sections.stackup" style="padding:0">
+        <div style="padding:4px 0"><button class="btn-add-row" @click="toggleStackupScheme">切换叠构({{ stackupScheme === 'normal' ? 'PP→Core' : 'Core→PP' }})</button></div>
+        <el-table :data="stackupRows" size="small" border style="width:100%">
+          <el-table-column label="层号" width="70"><template #default="{ row }"><el-input v-model="row.layerName" size="small" /></template></el-table-column>
+          <el-table-column label="材料"><template #default="{ row }"><el-select v-model="row.material" size="small" style="width:100%"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></template></el-table-column>
+          <el-table-column label="类型"><template #default="{ row }"><el-input v-model="row.pcbMaterialType" size="small" :disabled="row.material==='CU'" /></template></el-table-column>
+          <el-table-column label="铜厚(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.copperThickness" size="small" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="介质厚度(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.dielectricThickness" size="small" :min="0.01" :max="100" :precision="2" :disabled="row.material==='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="介电常数"><template #default="{ row }"><el-input-number :controls="false" v-model="row.dk" size="small" :min="1" :max="50" :precision="2" :disabled="row.material==='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="操作" width="50" align="center"><template #default="{ $index }"><button class="btn-del-row" @click="stackupRows.splice($index,1)">✕</button></template></el-table-column>
+        </el-table>
+        <div style="padding:6px 0"><button class="btn-add-row" @click="addStackupRow">+ 新增一行</button></div>
+      </div>
+
       <!-- 五、阻抗 -->
-      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:13px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></div>
+      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:15px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></div>
       <div v-if="sections.impedance" style="padding:0">
         <el-table :data="impRows" size="small" border style="width:100%">
           <el-table-column label="阻抗类型"><template #default="{ row }"><el-select v-model="row.impType" size="small" style="width:100%"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></template></el-table-column>
@@ -925,25 +973,25 @@ onUnmounted(() => {
 <style scoped>
 .page { min-height: 100vh; background: #f5f6fa; padding: 12px; }
 .form-box { background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); overflow: hidden; }
-.param-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.param-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .param-table td { padding: 6px 8px; border: 1px solid #f0f0f0; }
 .param-table td:nth-child(2) { display: flex; align-items: center; }
-.param-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; font-weight: 600; color: #666; font-size: 11px; }
+.param-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; font-weight: 600; color: #666; font-size: 13px; }
 .section-row { cursor: pointer; }
-.section-row td { background: #f0f4ff; font-weight: 600; color: #2756ff; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e6eb; }
+.section-row td { background: #f0f4ff; font-weight: 600; color: #2756ff; font-size: 15px; padding: 8px 10px; border: 1px solid #e5e6eb; }
 .section-row td:hover { background: #e0eaff; }
-.arrow { float: right; font-size: 10px; color: #999; display: inline-block; }
+.arrow { float: right; font-size: 12px; color: #999; display: inline-block; }
 .arrow.up { transform: rotate(-180deg); }
 .req { color: #f53f3f; margin-left: 2px; }
-.inner-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 6px; }
+.inner-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
 .inner-table th { background: #f7f8fa; padding: 4px 6px; border: 1px solid #e5e6eb; }
 .inner-table td { padding: 4px 6px; border: 1px solid #f0f0f0; }
 
 /* 单位 */
-.unit { font-size: 11px; color: #999; margin-left: 4px; flex-shrink: 0; }
+.unit { font-size: 13px; color: #999; margin-left: 4px; flex-shrink: 0; }
 
 /* 来源标签 */
-.badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; white-space: nowrap; }
+.badge { display: inline-block; font-size: 14px; padding: 2px 8px; border-radius: 10px; font-weight: 500; white-space: nowrap; }
 .badge.extracted { background: #e8f0ff; color: #2756ff; border: 1px solid #c4d8ff; }
 .badge.ai { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }
 .badge.empty { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
@@ -951,26 +999,26 @@ onUnmounted(() => {
 .td-view { text-align: center; }
 
 /* 查看按钮 */
-.btn-view { display: inline-flex; align-items: center; font-size: 10px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap; border: none; }
+.btn-view { display: inline-flex; align-items: center; font-size: 14px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap; border: none; }
 .btn-view.graphic { border: 1px solid #b7ebc2; background: #f0faf2; color: #00b42a; }
 .btn-view.doc { border: 1px solid #ffe0b2; background: #fffaf0; color: #d46b08; }
 .autocomplete-item { padding: 2px 0; }
 .btn-del-row { border: none; background: none; color: #f53f3f; cursor: pointer; font-size: 14px; }
-.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 11px; cursor: pointer; }
+.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 14px; cursor: pointer; }
 .quote-card { background: #f7f8fc; border-radius: 8px; padding: 14px 16px; margin: 12px 16px 16px; border: 1px solid #e5e6eb; }
-.qc-title { font-size: 13px; font-weight: 600; color: #333; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; margin-bottom: 10px; }
+.qc-title { font-size: 15px; font-weight: 600; color: #333; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; margin-bottom: 10px; }
 .qc-grid { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-.qc-row { display: flex; justify-content: space-between; font-size: 11px; color: #666; line-height: 1.7; }
+.qc-row { display: flex; justify-content: space-between; font-size: 15px; color: #555; line-height: 1.8; }
 .qcv { color: #333; font-weight: 500; }
 .qc-divider { border-top: 1px dashed #ddd; margin: 8px 0; }
 .qc-total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 4px; }
-.qc-total span { font-size: 13px; font-weight: 600; color: #333; }
-.qc-total small { font-size: 11px; color: #999; }
-.qc-price { font-size: 22px; font-weight: 700; color: #2756ff; }
-.btn-submit { width: 100%; height: 40px; background: linear-gradient(90deg,#2756ff,#4360df); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+.qc-total span { font-size: 15px; font-weight: 600; color: #333; }
+.qc-total small { font-size: 12px; color: #999; }
+.qc-price { font-size: 24px; font-weight: 700; color: #2756ff; }
+.btn-submit { width: 100%; height: 40px; background: linear-gradient(90deg,#2756ff,#4360df); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px; }
 .btn-submit:hover { opacity: 0.9; }
 .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-.qc-note { font-size: 11px; color: #aaa; text-align: center; margin: 6px 0 0; }
+.qc-note { font-size: 12px; color: #aaa; text-align: center; margin: 6px 0 0; }
 
 .loading-bar {
   position: fixed; top: 0; left: 0; height: 2px; z-index: 9999;
@@ -985,4 +1033,10 @@ onUnmounted(() => {
 }
 .token-banner { text-align: center; padding: 8px 16px; background: #fff7e6; color: #d46b08; font-size: 12px; border-bottom: 1px solid #ffd591; }
 .section-disabled { pointer-events: none; opacity: 0.5; }
+:deep(.el-table) { font-size: 14px; }
+:deep(.el-table th) { font-size: 14px; }
+:deep(.el-input__inner) { font-size: 14px; }
+:deep(.el-select__selected-item) { font-size: 14px; }
+:deep(.el-input-number) { font-size: 14px; }
+:deep(.el-textarea__inner) { font-size: 14px; }
 </style>

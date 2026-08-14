@@ -3,7 +3,7 @@ import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
-import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElDialog, ElButton, ElAutocomplete } from 'element-plus'
+import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElDialog, ElButton, ElAutocomplete, ElSwitch, ElTable, ElTableColumn } from 'element-plus'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -200,11 +200,86 @@ watch(() => form.holeCopperThickness, (val) => {
 // ==================== 叠层/阻抗 ====================
 interface StackupRow { layerName: string; material: string; pcbMaterialType: string; copperThickness: number | null; dielectricThickness: number | null; dk: number | null }
 const stackupRows = ref<StackupRow[]>([])
+const INNER_CU = 1.4
+const OUTER_CU = 0.7
+const stackupScheme = ref<'normal' | 'alt'>('normal')
+
+function makeCu(outer: boolean): StackupRow {
+  return { layerName: '', material: 'CU', pcbMaterialType: '', copperThickness: outer ? OUTER_CU : INNER_CU, dielectricThickness: null, dk: null }
+}
+
+function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
+  const rows: StackupRow[] = []
+  const M1 = scheme === 'normal' ? 'PP' : 'CORE'
+  const M2 = scheme === 'normal' ? 'CORE' : 'PP'
+  if (N === 1) {
+    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+  } else if (N === 2) {
+    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+  } else if (N >= 4 && N % 2 === 0) {
+    rows.push(makeCu(true))
+    for (let i = 0; i < N / 2 - 1; i++) {
+      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+    }
+    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+  }
+  let cuIdx = 0
+  stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
+}
+
+function toggleStackupScheme() {
+  stackupScheme.value = stackupScheme.value === 'normal' ? 'alt' : 'normal'
+  const n = Number(form.layerCount)
+  if (n >= 1) generateStackup(n, stackupScheme.value)
+}
+
+watch(() => form.layerCount, (val) => { const n = Number(val); if (n >= 1) generateStackup(n, stackupScheme.value) })
+
 function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }) }
 
-interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number }
+interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number; _refTopError?: string; _refBottomError?: string }
 const impTypes = ["外层单端","外层单端共面地","外层差分","外层差分共面地","内层单端(双层屏蔽)","内层差分(双层屏蔽)","内层单端(单层屏蔽)","内层差分(单层屏蔽)","内层单端共面地(双层屏蔽)","内层差分共面地(双层屏蔽)","内层层间差分(双层屏蔽)","内层差分1B2A(双层屏蔽)","内层差分1B2A(单层屏蔽)"]
 const impRows = ref<ImpRow[]>([])
+
+const layerOptions = computed(() => Array.from({ length: Number(form.layerCount) || 0 }, (_, i) => 'L' + (i + 1)))
+const refLayerOptions = computed(() => ['', ...layerOptions.value])
+
+function getExpectedRefLayer(controlLayer: string, type: 'top' | 'bottom'): string {
+  const c = parseInt(controlLayer.replace('L', ''))
+  const total = Number(form.layerCount) || 0
+  if (isNaN(c) || c < 1 || c > total) return ''
+  if (c === 1 && type === 'top') return ''
+  if (c === 1 && type === 'bottom') return 'L2'
+  if (c === total && type === 'top') return 'L' + (total - 1)
+  if (c === total && type === 'bottom') return ''
+  if (type === 'top') return 'L' + (c - 1)
+  return 'L' + (c + 1)
+}
+
+function onControlLayerChange(row: ImpRow) {
+  const idx = parseInt(row.controlLayer?.replace('L', '')) || 0
+  const total = Number(form.layerCount) || 0
+  if (!idx || idx < 1 || idx > total) { row.refLayerTop = ''; row.refLayerBottom = ''; row._refTopError = ''; row._refBottomError = ''; return }
+  if (idx === 1) { row.refLayerTop = ''; row.refLayerBottom = 'L2' }
+  else if (idx === total) { row.refLayerTop = 'L' + (total - 1); row.refLayerBottom = '' }
+  else { row.refLayerTop = 'L' + (idx - 1); row.refLayerBottom = 'L' + (idx + 1) }
+  validateRefLayer(row, 'top')
+  validateRefLayer(row, 'bottom')
+}
+
+function validateRefLayer(row: ImpRow, type: 'top' | 'bottom') {
+  if (!row.controlLayer) { if (type === 'top') row._refTopError = ''; else row._refBottomError = ''; return }
+  const expected = getExpectedRefLayer(row.controlLayer, type)
+  const actual = type === 'top' ? row.refLayerTop : row.refLayerBottom
+  if (actual !== expected) {
+    const label = type === 'top' ? '上参' : '下参'
+    const expLabel = expected || '空'
+    if (type === 'top') row._refTopError = `${label}应为${expLabel}`; else row._refBottomError = `${label}应为${expLabel}`
+  } else {
+    if (type === 'top') row._refTopError = ''; else row._refBottomError = ''
+  }
+}
+
 function addImpRow() { impRows.value.push({ impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 }) }
 
 // ==================== PCS/SET 尺寸联动 ====================
@@ -838,16 +913,43 @@ onUnmounted(() => {
             <tr><td colspan="4" style="padding:12px 8px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:13px;font-weight:600;color:#333">📝 备注</span></div><div style="min-height:180px;background:linear-gradient(135deg,#f8f9fb 0%,#fff 100%);border:1px solid #e8eaef;border-left:3px solid #2756ff;border-radius:6px;padding:14px 16px;color:#555;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 3px rgba(0,0,0,0.04)"><template v-if="form.remark.length"><div v-for="(msg, i) in form.remark" :key="i" style="margin-bottom:4px">{{ String(i + 1) }}. {{ (msg as string).includes('|') ? (msg as string).split('|').slice(1).join('|') : msg }}</div></template><template v-else><span style="color:#bbb">暂无备注信息</span></template></div></td></tr>
           </template>
 
-          <!-- 四、叠层 -->
-          <tr class="section-row" @click="sections.stackup = !sections.stackup"><td colspan="4">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></td></tr>
-          <tr v-if="sections.stackup"><td colspan="4"><table class="inner-table"><thead><tr><th>层号</th><th>材料</th><th>类型</th><th>铜厚(mil)</th><th>介质厚度(mil)</th><th>介电常数</th><th></th></tr></thead><tbody><tr v-for="(row,i) in stackupRows" :key="i"><td><el-input v-model="row.layerName" size="small" /></td><td><el-select v-model="row.material" size="small"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></td><td><el-input v-model="row.pcbMaterialType" size="small" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.copperThickness" size="small" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" /></td><td><el-input-number :controls="false" v-model="row.dielectricThickness" size="small" :min="0.01" :max="100" :precision="2" :disabled="row.material==='CU'" /></td><td><el-input-number :controls="false" v-model="row.dk" size="small" :min="1" :max="50" :precision="2" :disabled="row.material==='CU'" /></td><td><button class="btn-del-row" @click="stackupRows.splice(i,1)">✕</button></td></tr></tbody></table><button class="btn-add-row" @click="addStackupRow">+ 新增一行</button></td></tr>
-
-          <!-- 五、阻抗 -->
-          <tr class="section-row" @click="sections.impedance = !sections.impedance"><td colspan="4">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></td></tr>
-          <tr v-if="sections.impedance"><td colspan="4"><table class="inner-table"><thead><tr><th>阻抗类型</th><th>控制层</th><th>上参</th><th>下参</th><th>盖油</th><th>线宽(mil)</th><th>线距(mil)</th><th>线铜(mil)</th><th>阻抗(ohm)</th><th>公差(%)</th><th></th></tr></thead><tbody><tr v-for="(row,i) in impRows" :key="i"><td><el-select v-model="row.impType" size="small"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></td><td><el-input v-model="row.controlLayer" size="small" /></td><td><el-input v-model="row.refLayerTop" size="small" /></td><td><el-input v-model="row.refLayerBottom" size="small" /></td><td><el-switch v-model="row.isCoated" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineWidth" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineSpacing" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="small" /></td><td><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="small" /></td><td><button class="btn-del-row" @click="impRows.splice(i,1)">✕</button></td></tr></tbody></table><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></td></tr>
         </tbody>
       </table>
 
+      <!-- 四、叠层 -->
+      <div class="section-row" @click="sections.stackup = !sections.stackup" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:15px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></div>
+      <div v-if="sections.stackup" style="padding:0">
+        <div v-if="Number(form.layerCount) >= 4" style="padding:4px 0"><button class="btn-add-row" @click="toggleStackupScheme">切换叠构({{ stackupScheme === 'normal' ? 'PP→Core' : 'Core→PP' }})</button></div>
+        <el-table :data="stackupRows" size="small" border style="width:100%">
+          <el-table-column label="层号" width="70"><template #default="{ row }"><el-input v-model="row.layerName" size="small" /></template></el-table-column>
+          <el-table-column label="材料"><template #default="{ row }"><el-select v-model="row.material" size="small" style="width:100%"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></template></el-table-column>
+          <el-table-column label="类型"><template #default="{ row }"><el-input v-model="row.pcbMaterialType" size="small" :disabled="row.material==='CU'" /></template></el-table-column>
+          <el-table-column label="铜厚(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.copperThickness" size="small" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="介质厚度(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.dielectricThickness" size="small" :min="0.01" :max="100" :precision="2" :disabled="row.material==='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="介电常数"><template #default="{ row }"><el-input-number :controls="false" v-model="row.dk" size="small" :min="1" :max="50" :precision="2" :disabled="row.material==='CU'" style="width:100%" /></template></el-table-column>
+          <el-table-column label="操作" width="50" align="center"><template #default="{ $index }"><button class="btn-del-row" @click="stackupRows.splice($index,1)">✕</button></template></el-table-column>
+        </el-table>
+        <div style="padding:6px 0"><button class="btn-add-row" @click="addStackupRow">+ 新增一行</button></div>
+      </div>
+
+      <!-- 五、阻抗 -->
+      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size:15px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></div>
+      <div v-if="sections.impedance" style="padding:0">
+        <el-table :data="impRows" size="small" border style="width:100%">
+          <el-table-column label="阻抗类型"><template #default="{ row }"><el-select v-model="row.impType" size="small" style="width:100%"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></template></el-table-column>
+          <el-table-column label="控制层"><template #default="{ row }"><div><el-select v-model="row.controlLayer" size="small" style="width:100%" @change="onControlLayerChange(row)"><el-option v-for="l in layerOptions" :key="l" :label="l" :value="l" /></el-select></div></template></el-table-column>
+          <el-table-column label="上参"><template #default="{ row }"><div><el-select v-model="row.refLayerTop" size="small" style="width:100%" @change="validateRefLayer(row, 'top')"><el-option v-for="l in refLayerOptions" :key="l" :label="l || '空'" :value="l" /></el-select><div v-if="row._refTopError" style="color:#f56c6c;font-size:11px;margin-top:2px;line-height:1.2">{{ row._refTopError }}</div></div></template></el-table-column>
+          <el-table-column label="下参"><template #default="{ row }"><div><el-select v-model="row.refLayerBottom" size="small" style="width:100%" @change="validateRefLayer(row, 'bottom')"><el-option v-for="l in refLayerOptions" :key="l" :label="l || '空'" :value="l" /></el-select><div v-if="row._refBottomError" style="color:#f56c6c;font-size:11px;margin-top:2px;line-height:1.2">{{ row._refBottomError }}</div></div></template></el-table-column>
+          <el-table-column label="盖油" width="60" align="center"><template #default="{ row }"><el-switch v-model="row.isCoated" size="small" /></template></el-table-column>
+          <el-table-column label="线宽(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineWidth" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="线距(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineSpacing" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="线铜(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="阻抗(ohm)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="公差(%)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="操作" width="50" align="center"><template #default="{ $index }"><button class="btn-del-row" @click="impRows.splice($index,1)">✕</button></template></el-table-column>
+        </el-table>
+        <div style="padding:6px 0"><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></div>
+      </div>
 
       <!-- 线上旧报价 -->
       <div v-if="oldQuoteData" class="quote-card old-quote-card">
@@ -950,4 +1052,6 @@ onUnmounted(() => {
   100% { width: 0; left: 100%; }
 }
 .token-banner { text-align: center; padding: 8px 16px; background: #fff7e6; color: #d46b08; font-size: 12px; border-bottom: 1px solid #ffd591; }
+:deep(.el-table) { font-size: 14px; }
+:deep(.el-table th) { font-size: 14px; }
 </style>

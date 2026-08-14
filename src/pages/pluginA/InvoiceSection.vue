@@ -118,7 +118,7 @@ async function handleConfirm() {
     <template v-if="expanded">
       <!-- 发票类型 -->
       <div style="padding:12px 16px;display:flex;align-items:center;gap:10px">
-        <span style="font-size:11px;color:#888">发票类型</span>
+        <span style="font-size: 16px;color:#888">发票类型</span>
         <el-select v-model="invoiceType" size="small" style="width:320px">
           <el-option label="数电增值税（专用）发票" value="1" />
           <el-option label="数电增值税（普通）发票" value="2" />
@@ -198,20 +198,20 @@ async function handleConfirm() {
 
 <style scoped>
 .extra-card { margin: 12px 16px; background: #fff; border-radius: 8px; border: 1px solid #e5e6eb; overflow: hidden; }
-.extra-title { padding: 10px 16px; font-size: 13px; font-weight: 600; color: #2756ff; background: #f7f8fc; cursor: pointer; }
-.arrow { float: right; font-size: 10px; color: #999; display: inline-block; }
+.extra-title { padding: 10px 16px; font-size: 16px; font-weight: 600; color: #2756ff; background: #f7f8fc; cursor: pointer; }
+.arrow { float: right; font-size: 16px; color: #999; display: inline-block; }
 .arrow.up { transform: rotate(-180deg); }
-.invoice-table { width: calc(100% - 32px); margin: 0 16px; border-collapse: collapse; font-size: 12px; }
+.invoice-table { width: calc(100% - 32px); margin: 0 16px; border-collapse: collapse; font-size: 16px; }
 .invoice-table th { background: #f7f8fa; padding: 8px 10px; border: 1px solid #e5e6eb; text-align: left; font-weight: 600; color: #666; }
 .invoice-table th.no-header { background: #fff; border: none; width: 160px; }
 .invoice-table td { padding: 8px 10px; border: 1px solid #f0f0f0; }
-.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 14px; cursor: pointer; }
+.btn-add-row { padding: 4px 12px; border: 1px dashed #c4d8ff; border-radius: 4px; background: #f5f8ff; color: #2756ff; font-size: 16px; cursor: pointer; }
 
-.hint-box { background: #fffbe6; border: 1px solid #ffe58f; border-radius: 4px; padding: 10px 12px; font-size: 12px; color: #ad6800; line-height: 1.6; margin-bottom: 16px; white-space: pre-line; }
+.hint-box { background: #fffbe6; border: 1px solid #ffe58f; border-radius: 4px; padding: 10px 12px; font-size: 16px; color: #ad6800; line-height: 1.6; margin-bottom: 16px; white-space: pre-line; }
 .form-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.form-label { font-size: 13px; color: #333; min-width: 120px; text-align: right; }
+.form-label { font-size: 16px; color: #333; min-width: 120px; text-align: right; }
 .req { color: #f53f3f; margin-right: 2px; }
-.act-btn { border: 1px solid #d9d9d9; background: #fff; padding: 2px 10px; border-radius: 3px; font-size: 11px; cursor: pointer; margin-left: 6px; color: #666; }
+.act-btn { border: 1px solid #d9d9d9; background: #fff; padding: 2px 10px; border-radius: 3px; font-size: 16px; cursor: pointer; margin-left: 6px; color: #666; }
 .act-btn:hover { border-color: #2756ff; color: #2756ff; }
 .act-btn:disabled { color: #ccc; cursor: not-allowed; }
 .act-btn.act-del { color: #f53f3f; border-color: #ffccc7; }

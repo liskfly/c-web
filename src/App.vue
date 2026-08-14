@@ -19,4 +19,16 @@ body {
   color: #303133;
   font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
+
+:root {
+  --el-font-size-base: 16px;
+}
+
+.el-select-dropdown__item {
+  font-size: 16px !important;
+}
+
+.el-autocomplete-suggestion li {
+  font-size: 16px !important;
+}
 </style>

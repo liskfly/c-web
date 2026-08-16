@@ -12,7 +12,7 @@ const sections = reactive<Record<string, boolean>>({ basic: true, process: true,
 
 // ==================== 表单 V7.0 ====================
 const form = reactive<Record<string, any>>({
-  pcbName: "", pcbFile: "", layerCount: 2, blindVia: false,
+  pcbName: "", pcbFile: "", layerCount: null, blindVia: false,
   pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板&邮票孔交货", acceptXOut: false,
@@ -74,6 +74,16 @@ const showPanelFields = computed(() => form.setMethod === '客户拼板')
 const showEnigGold = computed(() => form.surfaceFinish === '沉金')
 const showGoldFinger = computed(() => form.goldFingerType !== '无')
 const hasInnerLayer = computed(() => Number(form.layerCount) > 2)
+// 层数超过 20 提醒
+watch(() => form.layerCount, (val) => {
+  const n = Number(val)
+  const KEY = 'LAYER_COUNT_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  if (Number.isFinite(n) && n > 20) {
+    form.remark.push(KEY + '|' + '板子层数超过20,走线下下单模式进行')
+  }
+})
+
 // 内层基铜厚度超范围提醒（层数 > 2 且内层基铜 > 2oz）
 watch([() => form.layerCount, () => form.innerCopperThickness], () => {
   const n = Number(form.innerCopperThickness)
@@ -218,15 +228,15 @@ function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
   const M1 = scheme === 'normal' ? 'PP' : 'CORE'
   const M2 = scheme === 'normal' ? 'CORE' : 'PP'
   if (N === 1) {
-    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(false))
   } else if (N === 2) {
-    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(true))
   } else if (N >= 4 && N % 2 === 0) {
     rows.push(makeCu(true))
     for (let i = 0; i < N / 2 - 1; i++) {
-      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(false))
+      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(false))
     }
-    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: 4.2 }, makeCu(true))
+    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(true))
   }
   let cuIdx = 0
   stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
@@ -235,13 +245,13 @@ function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
 function toggleStackupScheme() {
   stackupScheme.value = stackupScheme.value === 'normal' ? 'alt' : 'normal'
   const n = Number(form.layerCount)
-  if (n >= 1) generateStackup(n, stackupScheme.value)
+  if (n >= 1) { generateStackup(n, stackupScheme.value); generateImpedance(n) }
 }
 
 // 层数变化自动生成叠构（值合法时才生成，输入过程中不打断）
 watch(() => form.layerCount, (val) => {
   const n = Number(val)
-  if (Number.isInteger(n) && n > 0 && (n <= 2 || n % 2 === 0)) generateStackup(n, stackupScheme.value)
+  if (Number.isInteger(n) && n > 0 && (n <= 2 || n % 2 === 0)) { generateStackup(n, stackupScheme.value); generateImpedance(n) }
 })
 
 // 层数失焦校验：只能大于0的数字，>2时只能偶数，最大80层；校验后生成叠构
@@ -251,10 +261,11 @@ function onLayerCountBlur() {
   let n = Number(clean)
   if (!clean) { n = 2 }
   if (n <= 0) n = 2
-  if (n > 80) n = 80
+  if (n > 60) n = 60
   if (n > 2 && n % 2 !== 0) n += 1
   form.layerCount = n
   generateStackup(n, stackupScheme.value)
+  generateImpedance(n)
 }
 
 function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }) }
@@ -320,6 +331,42 @@ function validateRefLayer(row: ImpRow, type: 'top' | 'bottom') {
 }
 
 function addImpRow() { impRows.value.push({ impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 }) }
+
+function insertImpRow(index: number) {
+  impRows.value.splice(index + 1, 0, { impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 })
+}
+
+// 根据层数生成阻抗行：L1=外层单端、底层=外层差分，这两层盖油默认true，其余全空
+function generateImpedance(N: number) {
+  if (N < 2) { impRows.value = []; return }
+  const rows: ImpRow[] = []
+  for (let i = 1; i <= N; i++) {
+    const isFirst = i === 1
+    const isLast = i === N
+    rows.push({
+      impType: isFirst ? '外层单端' : isLast ? '外层差分' : '',
+      controlLayer: 'L' + i,
+      refLayerTop: '',
+      refLayerBottom: '',
+      isCoated: isFirst || isLast,
+      lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10,
+    })
+  }
+  impRows.value = rows
+  impRows.value.forEach(r => onControlLayerChange(r))
+}
+
+function requestPCSSize() {
+  const w = window as any
+  if (w.QtBridge?.send) w.QtBridge.send('html-button-message', { getPCSSize: '1' })
+  else console.log('[我→QT] getPCSSize')
+}
+
+function requestSetSize() {
+  const w = window as any
+  if (w.QtBridge?.send) w.QtBridge.send('html-button-message', { getSetSize: '1' })
+  else console.log('[我→QT] getSetSize')
+}
 
 // ==================== PCS/SET 尺寸联动 ====================
 function handleSizeBlur() {
@@ -521,8 +568,8 @@ function submitForm() {
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = form[k] })
   params['drillDensity'] = computedDrillDensity.value
-  if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
-  if (impRows.value.length) params['impedanceTable'] = impRows.value
+  // if (stackupRows.value.length) params['stackupList'] = stackupRows.value
+  // if (impRows.value.length) params['impList'] = impRows.value
   const payload = { taskId: taskId.value, pcbQuoteParams: params }
   const win = window as any
   // console.debug('[我→QT] 报价请求', { taskId: taskId.value, fieldCount: Object.keys(params).length })
@@ -578,8 +625,8 @@ function submitOrder() {
     params[key] = { ...(raw || {}), value: form[key], source: src }
   }
   params['drillDensity'] = { value: computedDrillDensity.value, source: 'computed' }
-  if (stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
-  if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
+  // if (stackupRows.value.length) params['stackupList'] = { value: stackupRows.value, source: 'user' }
+  // if (impRows.value.length) params['impList'] = { value: impRows.value, source: 'user' }
   const payload = params
   const win = window as any
   console.debug('[我→QT] 订单请求', { fieldCount: Object.keys(params).length })
@@ -714,8 +761,8 @@ function orderPayload() {
   const p: Record<string, any> = {}
   Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
   p['drillDensity'] = computedDrillDensity.value
-  if (stackupRows.value.length) p['stackupTable'] = stackupRows.value
-  if (impRows.value.length) p['impedanceTable'] = impRows.value
+  // if (stackupRows.value.length) p['stackupList'] = stackupRows.value
+  // if (impRows.value.length) p['impList'] = impRows.value
   return p
 }
 
@@ -736,6 +783,18 @@ async function handleQtMessage(event: Event) {
     userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''
     tokenReady.value = Boolean(userToken.value)
     if (!tokenReady.value) ElMessage.error('身份验证失败：未获取到有效 Token')
+    return
+  }
+
+  if (rn === 'PCSSize') {
+    form.pcsSizeWidth = detail.PCSWidth ?? form.pcsSizeWidth
+    form.pcsSizeHeight = detail.PCSHeight ?? form.pcsSizeHeight
+    return
+  }
+
+  if (rn === 'SetSize') {
+    form.setSizeWidth = detail.SetSizeWidth ?? form.setSizeWidth
+    form.setSizeHeight = detail.SetSizeHeight ?? form.setSizeHeight
     return
   }
 
@@ -829,7 +888,7 @@ async function handleQtMessage(event: Event) {
 
 onMounted(() => {
   componentActive = true
-  generateStackup(Number(form.layerCount) || 2)
+  // 初始叠层和阻抗为空，等层数变化或用户操作时再生成
   window.addEventListener('QtMessage', handleQtMessage)
 })
 
@@ -860,7 +919,7 @@ onUnmounted(() => {
             <tr><td>PCB 资料（客户品名）<span class="req">*</span></td><td><el-input v-model="form.pcbFile" size="large" /></td><td class="td-src"><span :class="sourceClass('pcbFile')">{{ sourceLabel('pcbFile') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcbFile')" class="btn-view graphic" @click="handleViewClick('pcbFile')">图形</button><button v-if="showDocBtn('pcbFile')" class="btn-view doc" @click="handleViewClick('pcbFile')">加工文档</button></td></tr>
             <tr><td>板子层数<span class="req">*</span></td><td><el-autocomplete v-model="form.layerCount" :fetch-suggestions="queryLayerCount" size="large" style="width:100%" placeholder="输入板子层数" clearable @blur="onLayerCountBlur"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">层</span></td><td class="td-src"><span :class="sourceClass('layerCount')">{{ sourceLabel('layerCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('layerCount')" class="btn-view graphic" @click="handleViewClick('layerCount')">图形</button><button v-if="showDocBtn('layerCount')" class="btn-view doc" @click="handleViewClick('layerCount')">加工文档</button></td></tr>
             <tr><td>盲埋孔</td><td><el-select v-model="form.blindVia" size="large" style="width:100%"><el-option v-for="v in opts.blindVia" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('blindVia')">{{ sourceLabel('blindVia') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('blindVia')" class="btn-view graphic" @click="handleViewClick('blindVia')">图形</button><button v-if="showDocBtn('blindVia')" class="btn-view doc" @click="handleViewClick('blindVia')">加工文档</button></td></tr>
-            <tr><td>PCS尺寸(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.pcsSizeWidth" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('pcsSizeWidth')">{{ sourceLabel('pcsSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcsSizeWidth')" class="btn-view graphic" @click="handleViewClick('pcsSizeWidth')">图形</button><button v-if="showDocBtn('pcsSizeWidth')" class="btn-view doc" @click="handleViewClick('pcsSizeWidth')">加工文档</button></td></tr>
+            <tr><td>PCS尺寸(水平)<span class="req">*</span> <el-button type="primary" @click="requestPCSSize">获取尺寸</el-button></td><td><el-input-number :controls="false" v-model="form.pcsSizeWidth" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('pcsSizeWidth')">{{ sourceLabel('pcsSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcsSizeWidth')" class="btn-view graphic" @click="handleViewClick('pcsSizeWidth')">图形</button><button v-if="showDocBtn('pcsSizeWidth')" class="btn-view doc" @click="handleViewClick('pcsSizeWidth')">加工文档</button></td></tr>
             <tr><td>PCS尺寸(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.pcsSizeHeight" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('pcsSizeHeight')">{{ sourceLabel('pcsSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcsSizeHeight')" class="btn-view graphic" @click="handleViewClick('pcsSizeHeight')">图形</button><button v-if="showDocBtn('pcsSizeHeight')" class="btn-view doc" @click="handleViewClick('pcsSizeHeight')">加工文档</button></td></tr>
             <tr><td>外形公差<span class="req">*</span></td><td><el-select v-model="form.dimensionTolerance" size="large" style="width:100%"><el-option v-for="v in opts.dimensionTolerance" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('dimensionTolerance')">{{ sourceLabel('dimensionTolerance') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('dimensionTolerance')" class="btn-view graphic" @click="handleViewClick('dimensionTolerance')">图形</button><button v-if="showDocBtn('dimensionTolerance')" class="btn-view doc" @click="handleViewClick('dimensionTolerance')">加工文档</button></td></tr>
             <tr><td>板子数量<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.quantity" :min="1" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('quantity')">{{ sourceLabel('quantity') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('quantity')" class="btn-view graphic" @click="handleViewClick('quantity')">图形</button><button v-if="showDocBtn('quantity')" class="btn-view doc" @click="handleViewClick('quantity')">加工文档</button></td></tr>
@@ -869,7 +928,7 @@ onUnmounted(() => {
             <tr><td>Set拼板方式<span class="req">*</span></td><td><el-select v-model="form.setMethod" size="large" style="width:100%"><el-option v-for="v in opts.setMethodAll" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('setMethod')">{{ sourceLabel('setMethod') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setMethod')" class="btn-view graphic" @click="handleViewClick('setMethod')">图形</button><button v-if="showDocBtn('setMethod')" class="btn-view doc" @click="handleViewClick('setMethod')">加工文档</button></td></tr>
               <tr><td>拼板个数(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelHorizontal" :min="1" :max="500" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelHorizontal')">{{ sourceLabel('clientPanelHorizontal') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelHorizontal')" class="btn-view graphic" @click="handleViewClick('clientPanelHorizontal')">图形</button><button v-if="showDocBtn('clientPanelHorizontal')" class="btn-view doc" @click="handleViewClick('clientPanelHorizontal')">加工文档</button></td></tr>
               <tr><td>拼板个数(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.clientPanelVertical" :min="1" :max="500" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('clientPanelVertical')">{{ sourceLabel('clientPanelVertical') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelVertical')" class="btn-view graphic" @click="handleViewClick('clientPanelVertical')">图形</button><button v-if="showDocBtn('clientPanelVertical')" class="btn-view doc" @click="handleViewClick('clientPanelVertical')">加工文档</button></td></tr>
-              <tr><td>Set尺寸(水平)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeWidth" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeWidth')">{{ sourceLabel('setSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeWidth')" class="btn-view graphic" @click="handleViewClick('setSizeWidth')">图形</button><button v-if="showDocBtn('setSizeWidth')" class="btn-view doc" @click="handleViewClick('setSizeWidth')">加工文档</button></td></tr>
+              <tr><td>Set尺寸(水平)<span class="req">*</span> <el-button type="primary" @click="requestSetSize">获取尺寸</el-button></td><td><el-input-number :controls="false" v-model="form.setSizeWidth" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeWidth')">{{ sourceLabel('setSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeWidth')" class="btn-view graphic" @click="handleViewClick('setSizeWidth')">图形</button><button v-if="showDocBtn('setSizeWidth')" class="btn-view doc" @click="handleViewClick('setSizeWidth')">加工文档</button></td></tr>
               <tr><td>Set尺寸(垂直)<span class="req">*</span></td><td><el-input-number :controls="false" v-model="form.setSizeHeight" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('setSizeHeight')">{{ sourceLabel('setSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('setSizeHeight')" class="btn-view graphic" @click="handleViewClick('setSizeHeight')">图形</button><button v-if="showDocBtn('setSizeHeight')" class="btn-view doc" @click="handleViewClick('setSizeHeight')">加工文档</button></td></tr>
               <tr><td>外形要求<span class="req">*</span></td><td><el-select v-model="form.clientPanelSeparation" size="large" style="width:100%"><el-option v-for="v in opts.clientPanelSeparation" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('clientPanelSeparation')">{{ sourceLabel('clientPanelSeparation') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('clientPanelSeparation')" class="btn-view graphic" @click="handleViewClick('clientPanelSeparation')">图形</button><button v-if="showDocBtn('clientPanelSeparation')" class="btn-view doc" @click="handleViewClick('clientPanelSeparation')">加工文档</button></td></tr>
               <tr><td>是否接受打叉板</td><td><el-select v-model="form.acceptXOut" size="large" style="width:100%"><el-option v-for="v in opts.acceptXOut" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('acceptXOut')">{{ sourceLabel('acceptXOut') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('acceptXOut')" class="btn-view graphic" @click="handleViewClick('acceptXOut')">图形</button><button v-if="showDocBtn('acceptXOut')" class="btn-view doc" @click="handleViewClick('acceptXOut')">加工文档</button></td></tr>
@@ -937,7 +996,7 @@ onUnmounted(() => {
       <div v-if="sections.stackup" style="padding:0">
         <div style="padding:4px 0"><button class="btn-add-row" @click="toggleStackupScheme">切换叠构({{ stackupScheme === 'normal' ? 'PP→Core' : 'Core→PP' }})</button></div>
         <el-table :data="stackupRows" size="small" border style="width:100%">
-          <el-table-column label="层号" width="70"><template #default="{ row }"><el-input v-model="row.layerName" size="large" /></template></el-table-column>
+          <el-table-column label="层号" width="110"><template #default="{ row }"><el-input v-model="row.layerName" size="large" /></template></el-table-column>
           <el-table-column label="材料"><template #default="{ row }"><el-select v-model="row.material" size="large" style="width:100%" @change="onMaterialChange(row)"><el-option v-for="m in ['PP','CORE','CU','光板']" :key="m" :label="m" :value="m" /></el-select></template></el-table-column>
           <el-table-column label="类型"><template #default="{ row }"><el-autocomplete v-model="row.pcbMaterialType" :fetch-suggestions="queryPcbMaterialType" size="large" style="width:100%" :disabled="row.material==='CU'" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete></template></el-table-column>
           <el-table-column label="铜厚(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.copperThickness" size="large" :min="0.1" :max="10" :precision="2" :disabled="row.material!=='CU'" style="width:100%" /></template></el-table-column>
@@ -962,9 +1021,9 @@ onUnmounted(() => {
           <el-table-column label="线铜(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="large" style="width:100%" /></template></el-table-column>
           <el-table-column label="阻抗(ohm)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="large" style="width:100%" /></template></el-table-column>
           <el-table-column label="公差(%)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="large" style="width:100%" /></template></el-table-column>
-          <el-table-column label="操作" width="50" align="center"><template #default="{ $index }"><button class="btn-del-row" @click="impRows.splice($index,1)">✕</button></template></el-table-column>
+          <el-table-column label="操作" width="130" align="center"><template #default="{ $index }"><el-button size="small" type="primary" link @click="insertImpRow($index)">新增</el-button><el-button size="small" type="danger" link @click="impRows.splice($index,1)">删除</el-button></template></el-table-column>
         </el-table>
-        <div style="padding:6px 0"><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></div>
+        <div v-if="impRows.length === 0" style="padding:6px 0"><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></div>
       </div>
 
       <!-- 六、开票 / 七、配送 -->

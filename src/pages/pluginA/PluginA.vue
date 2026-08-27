@@ -13,11 +13,11 @@ const sections = reactive<Record<string, boolean>>({ basic: true, process: true,
 // ==================== 表单 V7.0 ====================
 const form = reactive<Record<string, any>>({
   pcbName: "", pcbFile: "", layerCount: null, blindVia: false,
-  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
+  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: 0.1, quantity: 10, deliveryUnit: "PCS",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
   materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: false, halogenFree: false,
-  maxWarpage: "0.75%", boardThickness: 1.6, thicknessTolerance: "+/-10%",
+  maxWarpage: "0.75%", boardThickness: null, thicknessTolerance: "+/-10%",
   outerCopperThickness: 35, outerBaseCopperThickness: 18, innerCopperThickness: 1,
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
   minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
@@ -26,7 +26,7 @@ const form = reactive<Record<string, any>>({
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
   acceptanceStandard: "IPC 2", impedanceControl: false,
   markingRequirements: ["不需要"] as string[], periodFormat: "WWYY",
-  testRequirements: ["不需要"] as string[], shippingReports: ["不需要"] as string[], specialProcesses: ["不需要"] as string[],
+  testRequirements: ["飞针测试"] as string[], shippingReports: ["最终产品检查报告"] as string[], specialProcesses: ["不需要"] as string[],
   confirmProductionFile: false,
   remark: [] as string[],
 })
@@ -34,11 +34,11 @@ const form = reactive<Record<string, any>>({
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify({
   pcbName: "", pcbFile: "", layerCount: null, blindVia: false,
-  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
+  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: 0.1, quantity: 10, deliveryUnit: "PCS",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
   materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: false, halogenFree: false,
-  maxWarpage: "0.75%", boardThickness: 1.6, thicknessTolerance: "+/-10%",
+  maxWarpage: "0.75%", boardThickness: null, thicknessTolerance: "+/-10%",
   outerCopperThickness: 35, outerBaseCopperThickness: 18, innerCopperThickness: 1,
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
   minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
@@ -47,7 +47,7 @@ const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify({
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
   acceptanceStandard: "IPC 2", impedanceControl: false,
   markingRequirements: ["不需要"], periodFormat: "WWYY",
-  testRequirements: ["不需要"], shippingReports: ["不需要"], specialProcesses: ["不需要"],
+  testRequirements: ["飞针测试"], shippingReports: ["最终产品检查报告"], specialProcesses: ["不需要"],
   confirmProductionFile: false,
 }))
 
@@ -101,7 +101,6 @@ watch(form, () => {
 const opts: Record<string, any[]> = {
   layerCount: ["1","2","4","6","8","10","12","14","16","18","20","22","24","26","28","30"],
   blindVia: [{ value: false, label: '否' }, { value: true, label: '是' }],
-  dimensionTolerance: ["+/-0.10mm","+/-0.15mm","+/-0.20mm"],
   deliveryUnit: ["PCS","SET"], setMethodAll: ["单片无拼板","单片加工艺边","客户拼板"],
   clientPanelSeparation: ["拼板&邮票孔交货","拼板铣开交货","拼板V-CUT+桥连交货","拼板桥连+邮票孔","拼板V-CUT+邮票孔","拼板V-CUT桥连+邮票孔","拼板桥连交货","拼板+V-CUT交货"],
   acceptXOut: [{ value: true, label: '是' }, { value: false, label: '否' }],
@@ -546,13 +545,13 @@ watch(() => form.outerCopperThickness, (val) => {
   }
 })
 
-// 最小沉金金厚超范围提醒（表面处理=沉金 且 金厚 > 0.075）
+// 最小沉金金厚超范围提醒（表面处理=沉金 且 金厚 > 0.0762）
 watch([() => form.surfaceFinish, () => form.enigGoldThickness], () => {
   const n = Number(form.enigGoldThickness)
   const KEY = 'ENIG_GOLD_LIMIT'
   form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
-  if (form.surfaceFinish === '沉金' && Number.isFinite(n) && n > 0.075) {
-    form.remark.push(KEY + '|' + '最小沉金金厚：超出P10工厂0.075um沉金厚度的项目，走线下下单模式进行；')
+  if (form.surfaceFinish === '沉金' && Number.isFinite(n) && n > 0.0762) {
+    form.remark.push(KEY + '|' + '最小沉金金厚：超出P10工厂0.0762um沉金厚度的项目，走线下下单模式进行；')
   }
 })
 
@@ -618,6 +617,16 @@ watch(() => form.minHoleSize, (val) => {
   }
 })
 
+// 外形公差超范围提醒（< 0.1mm 超出P10能力）
+watch(() => form.dimensionTolerance, (val) => {
+  const KEY = 'DIMENSION_TOLERANCE_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  const n = Number(val)
+  if (val !== null && val !== undefined && val !== '' && Number.isFinite(n) && n > 0 && n < 0.1) {
+    form.remark.push(KEY + '|' + '外形公差：小于0.1mm，超出P10工厂能力，走线下下单模式进行')
+  }
+})
+
 // 阻焊颜色提醒（红色超P10能力）
 watch(() => form.solderMaskColor, (val) => {
   const KEY = 'SOLDER_MASK_COLOR_LIMIT'
@@ -651,6 +660,15 @@ watch(() => form.acceptanceStandard, (val) => {
   form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
   if (val && !['IPC 2', 'IPC 3'].includes(val)) {
     form.remark.push(KEY + '|' + '验收标准：超出P10工厂能力（仅支持IPC 2、IPC 3），走线下下单模式进行')
+  }
+})
+
+// 周期格式提醒（仅支持 WWYY/YYWW/MMYY/YYMM/DDMMYY/YYMMDD）
+watch(() => form.periodFormat, (val) => {
+  const KEY = 'PERIOD_FORMAT_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  if (val && !['WWYY', 'YYWW', 'MMYY', 'YYMM', 'DDMMYY', 'YYMMDD'].includes(val)) {
+    form.remark.push(KEY + '|' + '周期格式：超出P10工厂能力（仅支持WWYY、YYWW、MMYY、YYMM、DDMMYY、YYMMDD），走线下下单模式进行')
   }
 })
 
@@ -690,16 +708,27 @@ watch(() => form.specialProcesses, (val) => {
   }
 })
 
-// 成品板厚联动板厚公差 & 超范围提醒
+// 成品板厚联动板厚公差 & 超范围提醒（P10 范围：0.6~3.5mm）
 watch(() => form.boardThickness, (val) => {
   const n = Number(val)
-  if (Number.isFinite(n)) {
+  if (val !== null && val !== undefined && val !== '' && Number.isFinite(n)) {
     form.thicknessTolerance = n < 1.0 ? '+/-0.10mm' : '+/-10%'
   }
   const KEY = 'BOARD_THICKNESS_LIMIT'
   form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
   if (Number.isFinite(n) && n > 0 && (n < 0.6 || n > 3.5)) {
-    form.remark.push(KEY + '|' + '成品板厚：P10工厂完成板厚加工能力范围：0.6~3.5mm，超范围放P10以外的其他工厂生产，电巢走线下下单模式进行')
+    form.remark.push(KEY + '|' + '成品板厚：超出P10工厂能力（0.6~3.5mm范围），走线下下单模式进行')
+  }
+})
+
+// 翘曲度超范围提醒（< 0.5% 超出P10能力）
+watch(() => form.maxWarpage, (val) => {
+  const KEY = 'WARPAGE_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  const match = String(val ?? '').match(/[0-9]*\.?[0-9]+/)
+  const n = match ? Number(match[0]) : NaN
+  if (Number.isFinite(n) && n > 0 && n < 0.5) {
+    form.remark.push(KEY + '|' + '翘曲度：小于0.5%，超出P10工厂能力，走线下下单模式进行')
   }
 })
 const computedDrillDensity = computed(() => {
@@ -799,15 +828,15 @@ function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
   const M1 = scheme === 'normal' ? 'PP' : 'CORE'
   const M2 = scheme === 'normal' ? 'CORE' : 'PP'
   if (N === 1) {
-    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(true))
+    rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
   } else if (N === 2) {
-    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(true))
+    rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
   } else if (N >= 4 && N % 2 === 0) {
     rows.push(makeCu(true))
     for (let i = 0; i < N / 2 - 1; i++) {
-      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(false))
+      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false))
     }
-    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: 4.0, dk: null }, makeCu(true))
+    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
   }
   let cuIdx = 0
   stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
@@ -959,6 +988,19 @@ function handleSizeBlur() {
     }
   }
 
+  // SET 尺寸超限提醒（规则同 PCS）
+  const swOver = sw > 571.5
+  const shOver = sh > 571.5
+  const KEY_SET = 'SET_SIZE_LIMIT'
+  if (Number.isFinite(sw) && Number.isFinite(sh)) {
+    form.remark = form.remark.filter((m: string) => !m.startsWith(KEY_SET + '|'))
+    if (swOver && (sh <= 0 || sh > 419.1)) {
+      form.remark.push(KEY_SET + '|' + 'SET尺寸(水平)已超过 571.5mm，SET尺寸(垂直)需限制在 0-419.1mm 内，超出P10，走线下下单模式进行。')
+    } else if (shOver && (sw <= 0 || sw > 419.1)) {
+      form.remark.push(KEY_SET + '|' + 'SET尺寸(垂直)已超过 571.5mm，SET尺寸(水平)需限制在 0-419.1mm 内，超出P10，走线下下单模式进行。')
+    }
+  }
+
   if (![pw, ph, sw, sh].every(v => Number.isFinite(v) && v > 0)) return
 
   const pcsArea = pw * ph
@@ -1098,7 +1140,16 @@ const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
 const rawEventData = ref<any>(null)
 
-function sourceLabel(f: string): string { const s = fieldSource[f]; if (s==='ai') return 'AI提参'; if (s==='cam') return '文件解析'; return '--' }
+function sourceLabel(f: string): string {
+  // 用户修改过 → 用户确认；否则按来源显示
+  if (userModifiedFields.value.has(f)) return '用户确认'
+  const s = fieldSource[f]
+  if (s==='ai') return 'AI提参'
+  if (s==='cam') return '文件解析'
+  // 服务端默认 / 有默认值但未传来源 → 默认行业标准；无默认值无来源 → 空白
+  if (s==='server default' || hasDefault(f)) return '默认行业标准'
+  return ''
+}
 function sourceClass(f: string): string { const s = fieldSource[f]; if (s==='ai') return 'badge ai'; if (s==='cam') return 'badge extracted'; return 'badge empty' }
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
@@ -1113,6 +1164,11 @@ function applyFieldData(data: Record<string, any>) {
     if(!(k in form)) continue
     const e=data[k]; const v=e?.value??e; const s=e?.source??''
     if(boolF.includes(k)) form[k]=toBoolean(v)
+    else if(k==='dimensionTolerance') {
+      // 兼容旧格式 "+/-0.10mm" → 数值
+      if (typeof v === 'number') form[k] = v
+      else { const m = String(v ?? '').match(/[0-9]*\.?[0-9]+/); form[k] = m ? Number(m[0]) : null }
+    }
     else if(numF.includes(k)) { const numeric=Number(v); form[k]=Number.isFinite(numeric)?numeric:0 }
     else if(arrF.includes(k)) form[k]=Array.isArray(v)?v:(v?[v]:[])
     else form[k]=v
@@ -1124,6 +1180,13 @@ function applyFieldData(data: Record<string, any>) {
     if (k in form) userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
   }
   rebuildUserModified()
+}
+
+// 外形公差提交格式：数字 → "+/-X.XXmm"
+function formatDimensionTolerance(): string {
+  const n = Number(form.dimensionTolerance)
+  if (!Number.isFinite(n)) return ''
+  return `+/-${n.toFixed(2)}mm`
 }
 
 function validateForm(): boolean {
@@ -1145,7 +1208,7 @@ function submitForm() {
   beginQuoteRequest()
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
-  fk.forEach(k => { if (k !== "remark") params[k] = form[k] })
+  fk.forEach(k => { if (k !== "remark") params[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
   params['drillDensity'] = computedDrillDensity.value
   // if (stackupRows.value.length) params['stackupList'] = stackupRows.value
   // if (impRows.value.length) params['impList'] = impRows.value
@@ -1201,7 +1264,8 @@ function submitOrder() {
   for (const key of Object.keys(form)) { if (key === "remark") continue;
     const raw = fieldRawData[key]
     const src = fieldSource[key] || 'user'
-    params[key] = { ...(raw || {}), value: form[key], source: src }
+    const val = key === 'dimensionTolerance' ? formatDimensionTolerance() : form[key]
+    params[key] = { ...(raw || {}), value: val, source: src }
   }
   params['drillDensity'] = { value: computedDrillDensity.value, source: 'computed' }
   // if (stackupRows.value.length) params['stackupList'] = { value: stackupRows.value, source: 'user' }
@@ -1338,7 +1402,7 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
 
 function orderPayload() {
   const p: Record<string, any> = {}
-  Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
+  Object.keys(form).forEach(k => { if (k !== "remark") p[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
   p['drillDensity'] = computedDrillDensity.value
   // if (stackupRows.value.length) p['stackupList'] = stackupRows.value
   // if (impRows.value.length) p['impList'] = impRows.value
@@ -1500,7 +1564,7 @@ onUnmounted(() => {
             <tr><td>盲埋孔</td><td :class="fieldBgClass('blindVia')"><el-select v-model="form.blindVia" size="large" style="width:100%"><el-option v-for="v in opts.blindVia" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('blindVia')">{{ sourceLabel('blindVia') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('blindVia')" class="btn-view graphic" @click="handleViewClick('blindVia')">图形</button><button v-if="showDocBtn('blindVia')" class="btn-view doc" @click="handleViewClick('blindVia')">加工文档</button></td></tr>
             <tr><td>PCS尺寸(水平)<span class="req">*</span> <el-button type="primary" @click="requestPCSSize">获取尺寸</el-button></td><td :class="fieldBgClass('pcsSizeWidth')"><el-input-number :controls="false" v-model="form.pcsSizeWidth" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('pcsSizeWidth')">{{ sourceLabel('pcsSizeWidth') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcsSizeWidth')" class="btn-view graphic" @click="handleViewClick('pcsSizeWidth')">图形</button><button v-if="showDocBtn('pcsSizeWidth')" class="btn-view doc" @click="handleViewClick('pcsSizeWidth')">加工文档</button></td></tr>
             <tr><td>PCS尺寸(垂直)<span class="req">*</span></td><td :class="fieldBgClass('pcsSizeHeight')"><el-input-number :controls="false" v-model="form.pcsSizeHeight" :min="0" :precision="2" size="large" style="width:100%" @blur="handleSizeBlur" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('pcsSizeHeight')">{{ sourceLabel('pcsSizeHeight') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('pcsSizeHeight')" class="btn-view graphic" @click="handleViewClick('pcsSizeHeight')">图形</button><button v-if="showDocBtn('pcsSizeHeight')" class="btn-view doc" @click="handleViewClick('pcsSizeHeight')">加工文档</button></td></tr>
-            <tr><td>外形公差<span class="req">*</span></td><td :class="fieldBgClass('dimensionTolerance')"><el-select v-model="form.dimensionTolerance" size="large" style="width:100%"><el-option v-for="v in opts.dimensionTolerance" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('dimensionTolerance')">{{ sourceLabel('dimensionTolerance') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('dimensionTolerance')" class="btn-view graphic" @click="handleViewClick('dimensionTolerance')">图形</button><button v-if="showDocBtn('dimensionTolerance')" class="btn-view doc" @click="handleViewClick('dimensionTolerance')">加工文档</button></td></tr>
+            <tr><td>外形公差<span class="req">*</span></td><td :class="fieldBgClass('dimensionTolerance')"><span style="flex-shrink:0;color:#666">+/-</span><el-input-number :controls="false" v-model="form.dimensionTolerance" :min="0" :precision="2" :step="0.05" size="large" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('dimensionTolerance')">{{ sourceLabel('dimensionTolerance') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('dimensionTolerance')" class="btn-view graphic" @click="handleViewClick('dimensionTolerance')">图形</button><button v-if="showDocBtn('dimensionTolerance')" class="btn-view doc" @click="handleViewClick('dimensionTolerance')">加工文档</button></td></tr>
             <tr><td>板子数量<span class="req">*</span></td><td :class="fieldBgClass('quantity')"><el-input-number :controls="false" v-model="form.quantity" :min="1" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('quantity')">{{ sourceLabel('quantity') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('quantity')" class="btn-view graphic" @click="handleViewClick('quantity')">图形</button><button v-if="showDocBtn('quantity')" class="btn-view doc" @click="handleViewClick('quantity')">加工文档</button></td></tr>
             <tr><td>交货单位<span class="req">*</span></td><td :class="fieldBgClass('deliveryUnit')"><el-select v-model="form.deliveryUnit" size="large" style="width:100%"><el-option v-for="v in opts.deliveryUnit" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('deliveryUnit')">{{ sourceLabel('deliveryUnit') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('deliveryUnit')" class="btn-view graphic" @click="handleViewClick('deliveryUnit')">图形</button><button v-if="showDocBtn('deliveryUnit')" class="btn-view doc" @click="handleViewClick('deliveryUnit')">加工文档</button></td></tr>
             <tr><td>合拼种数<span class="req">*</span></td><td :class="fieldBgClass('panelTypesCount')"><el-input-number :controls="false" v-model="form.panelTypesCount" :min="1" :max="100" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('panelTypesCount')">{{ sourceLabel('panelTypesCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('panelTypesCount')" class="btn-view graphic" @click="handleViewClick('panelTypesCount')">图形</button><button v-if="showDocBtn('panelTypesCount')" class="btn-view doc" @click="handleViewClick('panelTypesCount')">加工文档</button></td></tr>
@@ -1522,10 +1586,10 @@ onUnmounted(() => {
             <tr><td>TG值<span class="req">*</span></td><td :class="fieldBgClass('materialTg')"><el-select v-model="form.materialTg" @change="onMaterialTgChange" size="large" style="width:100%"><el-option v-for="v in opts.materialTg" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('materialTg')">{{ sourceLabel('materialTg') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('materialTg')" class="btn-view graphic" @click="handleViewClick('materialTg')">图形</button><button v-if="showDocBtn('materialTg')" class="btn-view doc" @click="handleViewClick('materialTg')">加工文档</button></td></tr>
             <tr><td>无卤板材<span class="req">*</span></td><td :class="fieldBgClass('halogenFree')"><el-select v-model="form.halogenFree" @change="onMaterialHalogenChange" size="large" style="width:100%"><el-option v-for="v in opts.halogenFree" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><span :class="sourceClass('halogenFree')">{{ sourceLabel('halogenFree') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('halogenFree')" class="btn-view graphic" @click="handleViewClick('halogenFree')">图形</button><button v-if="showDocBtn('halogenFree')" class="btn-view doc" @click="handleViewClick('halogenFree')">加工文档</button></td></tr>
             <tr><td>翘曲度<span class="req">*</span></td><td :class="fieldBgClass('maxWarpage')"><el-autocomplete v-model="form.maxWarpage" :fetch-suggestions="queryMaxWarpage" size="large" style="width:100%" placeholder="输入搜索翘曲度" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete></td><td class="td-src"><span :class="sourceClass('maxWarpage')">{{ sourceLabel('maxWarpage') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('maxWarpage')" class="btn-view graphic" @click="handleViewClick('maxWarpage')">图形</button><button v-if="showDocBtn('maxWarpage')" class="btn-view doc" @click="handleViewClick('maxWarpage')">加工文档</button></td></tr>
-            <tr><td>成品板厚<span class="req">*</span></td><td :class="fieldBgClass('boardThickness')"><el-autocomplete v-model="form.boardThickness" :fetch-suggestions="queryBoardThickness" @select="(item: any) => { form.boardThickness = item.value }" size="small" style="width:100%" placeholder="输入搜索成品板厚" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('boardThickness')">{{ sourceLabel('boardThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('boardThickness')" class="btn-view graphic" @click="handleViewClick('boardThickness')">图形</button><button v-if="showDocBtn('boardThickness')" class="btn-view doc" @click="handleViewClick('boardThickness')">加工文档</button></td></tr>
+            <tr><td>成品板厚<span class="req">*</span></td><td :class="fieldBgClass('boardThickness')"><el-autocomplete v-model="form.boardThickness" :fetch-suggestions="queryBoardThickness" @select="(item: any) => { form.boardThickness = item.value }" size="large" style="width:100%" placeholder="输入搜索成品板厚" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('boardThickness')">{{ sourceLabel('boardThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('boardThickness')" class="btn-view graphic" @click="handleViewClick('boardThickness')">图形</button><button v-if="showDocBtn('boardThickness')" class="btn-view doc" @click="handleViewClick('boardThickness')">加工文档</button></td></tr>
             <tr><td>板厚公差<span class="req">*</span></td><td :class="fieldBgClass('thicknessTolerance')"><el-autocomplete v-model="form.thicknessTolerance" :fetch-suggestions="queryThicknessTolerance" size="large" style="width:100%" placeholder="输入搜索板厚公差" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete></td><td class="td-src"><span :class="sourceClass('thicknessTolerance')">{{ sourceLabel('thicknessTolerance') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('thicknessTolerance')" class="btn-view graphic" @click="handleViewClick('thicknessTolerance')">图形</button><button v-if="showDocBtn('thicknessTolerance')" class="btn-view doc" @click="handleViewClick('thicknessTolerance')">加工文档</button></td></tr>
-            <tr><td>外层完成铜厚度<span class="req">*</span></td><td :class="fieldBgClass('outerCopperThickness')"><el-autocomplete v-model="form.outerCopperThickness" :fetch-suggestions="queryOuterCopperThickness" @select="(item: any) => { form.outerCopperThickness = item.value }" size="small" style="width:100%" placeholder="输入搜索外层完成铜厚度" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('outerCopperThickness')">{{ sourceLabel('outerCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('outerCopperThickness')" class="btn-view graphic" @click="handleViewClick('outerCopperThickness')">图形</button><button v-if="showDocBtn('outerCopperThickness')" class="btn-view doc" @click="handleViewClick('outerCopperThickness')">加工文档</button></td></tr>
-            <tr><td>外层基铜厚度</td><td :class="fieldBgClass('outerBaseCopperThickness')"><el-autocomplete v-model="form.outerBaseCopperThickness" :fetch-suggestions="queryOuterBaseCopperThickness" @select="(item: any) => { form.outerBaseCopperThickness = item.value }" size="small" style="width:100%" placeholder="输入搜索外层基铜厚度" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('outerBaseCopperThickness')">{{ sourceLabel('outerBaseCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('outerBaseCopperThickness')" class="btn-view graphic" @click="handleViewClick('outerBaseCopperThickness')">图形</button><button v-if="showDocBtn('outerBaseCopperThickness')" class="btn-view doc" @click="handleViewClick('outerBaseCopperThickness')">加工文档</button></td></tr>
+            <tr><td>外层完成铜厚度<span class="req">*</span></td><td :class="fieldBgClass('outerCopperThickness')"><el-autocomplete v-model="form.outerCopperThickness" :fetch-suggestions="queryOuterCopperThickness" @select="(item: any) => { form.outerCopperThickness = item.value }" size="large" style="width:100%" placeholder="输入搜索外层完成铜厚度" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('outerCopperThickness')">{{ sourceLabel('outerCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('outerCopperThickness')" class="btn-view graphic" @click="handleViewClick('outerCopperThickness')">图形</button><button v-if="showDocBtn('outerCopperThickness')" class="btn-view doc" @click="handleViewClick('outerCopperThickness')">加工文档</button></td></tr>
+            <tr><td>外层基铜厚度</td><td :class="fieldBgClass('outerBaseCopperThickness')"><el-autocomplete v-model="form.outerBaseCopperThickness" :fetch-suggestions="queryOuterBaseCopperThickness" @select="(item: any) => { form.outerBaseCopperThickness = item.value }" size="large" style="width:100%" placeholder="输入搜索外层基铜厚度" clearable><template #default="{ item }"><div class="autocomplete-item">{{ item.value }}</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('outerBaseCopperThickness')">{{ sourceLabel('outerBaseCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('outerBaseCopperThickness')" class="btn-view graphic" @click="handleViewClick('outerBaseCopperThickness')">图形</button><button v-if="showDocBtn('outerBaseCopperThickness')" class="btn-view doc" @click="handleViewClick('outerBaseCopperThickness')">加工文档</button></td></tr>
             <template v-if="hasInnerLayer"><tr><td>内层基铜厚度<span class="req">*</span></td><td :class="fieldBgClass('innerCopperThickness')"><el-autocomplete v-model="form.innerCopperThickness" :fetch-suggestions="queryInnerCopperThickness" size="large" style="width:100%" placeholder="输入搜索内层基铜厚度" clearable @select="(item: any) => { form.innerCopperThickness = item.value }"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }} oz</div></template></el-autocomplete><span class="unit">oz</span></td><td class="td-src"><span :class="sourceClass('innerCopperThickness')">{{ sourceLabel('innerCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('innerCopperThickness')" class="btn-view graphic" @click="handleViewClick('innerCopperThickness')">图形</button><button v-if="showDocBtn('innerCopperThickness')" class="btn-view doc" @click="handleViewClick('innerCopperThickness')">加工文档</button></td></tr></template>
             <tr><td>外层最小线宽<span class="req">*</span></td><td :class="fieldBgClass('minTraceWidthOuter')"><el-input-number :controls="false" v-model="form.minTraceWidthOuter" :min="0" :precision="2" size="large" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceWidthOuter')">{{ sourceLabel('minTraceWidthOuter') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceWidthOuter')" class="btn-view graphic" @click="handleViewClick('minTraceWidthOuter')">图形</button><button v-if="showDocBtn('minTraceWidthOuter')" class="btn-view doc" @click="handleViewClick('minTraceWidthOuter')">加工文档</button></td></tr>
             <tr><td>外层最小线距<span class="req">*</span></td><td :class="fieldBgClass('minTraceSpacingOuter')"><el-input-number :controls="false" v-model="form.minTraceSpacingOuter" :min="0" :precision="2" size="large" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingOuter')">{{ sourceLabel('minTraceSpacingOuter') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingOuter')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingOuter')">图形</button><button v-if="showDocBtn('minTraceSpacingOuter')" class="btn-view doc" @click="handleViewClick('minTraceSpacingOuter')">加工文档</button></td></tr>
@@ -1534,7 +1598,7 @@ onUnmounted(() => {
               <tr><td>内层最小线距<span class="req">*</span></td><td :class="fieldBgClass('minTraceSpacingInner')"><el-input-number :controls="false" v-model="form.minTraceSpacingInner" :min="0" :precision="2" size="large" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingInner')">{{ sourceLabel('minTraceSpacingInner') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingInner')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingInner')">图形</button><button v-if="showDocBtn('minTraceSpacingInner')" class="btn-view doc" @click="handleViewClick('minTraceSpacingInner')">加工文档</button></td></tr>
               </template>
             <tr><td>最小孔径<span class="req">*</span></td><td :class="fieldBgClass('minHoleSize')"><el-input-number :controls="false" v-model="form.minHoleSize" :min="0" :precision="3" size="large" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('minHoleSize')">{{ sourceLabel('minHoleSize') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minHoleSize')" class="btn-view graphic" @click="handleViewClick('minHoleSize')">图形</button><button v-if="showDocBtn('minHoleSize')" class="btn-view doc" @click="handleViewClick('minHoleSize')">加工文档</button></td></tr>
-			            <tr><td>孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge empty">--</span></td><td class="td-view"></td></tr>
+			            <tr><td>孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge empty"></span></td><td class="td-view"></td></tr>
 			            <tr><td>通孔孔数/PCS</td><td :class="fieldBgClass('holeCount')"><el-input-number :controls="false" v-model="form.holeCount" :min="0" :precision="0" size="large" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('holeCount')">{{ sourceLabel('holeCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCount')" class="btn-view graphic" @click="handleViewClick('holeCount')">图形</button><button v-if="showDocBtn('holeCount')" class="btn-view doc" @click="handleViewClick('holeCount')">加工文档</button></td></tr>
             <tr><td>最小孔铜<span class="req">*</span></td><td :class="fieldBgClass('holeCopperThickness')"><el-autocomplete v-model="form.holeCopperThickness" :fetch-suggestions="queryHoleCopperThickness" size="large" style="width:100%" placeholder="输入或选择" clearable @select="(item: any) => { form.holeCopperThickness = item.value }"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }} um</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('holeCopperThickness')">{{ sourceLabel('holeCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCopperThickness')" class="btn-view graphic" @click="handleViewClick('holeCopperThickness')">图形</button><button v-if="showDocBtn('holeCopperThickness')" class="btn-view doc" @click="handleViewClick('holeCopperThickness')">加工文档</button></td></tr>
             <tr><td>阻焊颜色<span class="req">*</span></td><td :class="fieldBgClass('solderMaskColor')"><el-select v-model="form.solderMaskColor" size="large" style="width:100%"><el-option v-for="v in opts.solderMaskColor" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('solderMaskColor')">{{ sourceLabel('solderMaskColor') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('solderMaskColor')" class="btn-view graphic" @click="handleViewClick('solderMaskColor')">图形</button><button v-if="showDocBtn('solderMaskColor')" class="btn-view doc" @click="handleViewClick('solderMaskColor')">加工文档</button></td></tr>
@@ -1667,6 +1731,7 @@ onUnmounted(() => {
 .badge.extracted { background: #e8f0ff; color: #2756ff; border: 1px solid #c4d8ff; }
 .badge.ai { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }
 .badge.empty { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
+.badge.empty:empty { display: none; }
 .td-src { text-align: center; }
 .td-view { text-align: center; }
 

@@ -237,16 +237,29 @@ const materialRules: Record<string, { brands: string[]; versions: string[]; tg: 
   '混压板': { brands: [], versions: [], tg: [], halogen: [], versionDetail: {} },
 }
 
-// 旧板材种类名称兼容（历史数据/其他端推送）
-const MATERIAL_TYPE_ALIAS: Record<string, string> = { '高速板材': '高速', '高频板': '高频', 'PTFE板材': '高频' }
-function ruleForType(t: string) { return materialRules[MATERIAL_TYPE_ALIAS[t] || t] || null }
-function isMixMaterial(): boolean { return form.materialType === '混压板' }
-
 // 全局型号明细表
 const versionDetailMap: Record<string, VersionDetail> = {}
 for (const rule of Object.values(materialRules)) {
   for (const [v, d] of Object.entries(rule.versionDetail)) versionDetailMap[v] = d
 }
+
+// 芯板型号 → PP型号
+const ppMap: Record<string, string> = {
+  'IT-158': 'IT-158BS', 'NY2150': 'NY2150', 'S1000H': 'S1000HB', 'S1151G': 'S1151GB', 'S1150G': 'S1150GB', 'S1165': 'S1165B',
+  'IT-180A': 'IT-180A', 'TU-752': 'TU-75P', 'S1000-2M': 'S1000-2MB', 'S1000-2': 'S1000-2B', 'TU-768': 'TU-768', 'NY2170': 'NY2170', 'S1190': 'S1190B',
+  'RO4725JXR': 'RO4450F',
+  'TU862 HF': 'TU86P HF', 'IT-170GT': 'IT-170GT', 'IT-170GRA1': 'IT-170GRA1', 'IT-170GRA2': 'IT-170GRA2', 'TU-872 SLK': 'TU-87P SLK', 'TU-872 SLK SP': 'TU-87P SLK SP',
+  'N4103-13': 'N4203-13', 'N4103-13EP': 'N4203-13EP', 'N4103-13SI': 'N4203-13SI', 'N4103-13EPSI': 'N4203-13EPSI',
+  'R-5725/M4': 'R-5620', 'R-5725S/M4S': 'R-5620S', 'R-5725SS': 'R-5620SS', 'R-5785GE': 'R-5680GE', 'R-5785N/M7N': 'R-5680N',
+  'Synamic6': 'Synamic6B', 'FR408HR': 'FR408HR', 'S7439': 'S7439 B', 'S7439HW': 'S7439HW B', 'Synamic6N': 'Synamic6 B',
+  'EM-888': 'EM-888 B', 'EM-888K': 'EM-888 BK', 'R-5575': 'R-5620',
+  'R-5775': 'R-5670', 'R-5775G/M6G': 'R-5670G', 'R-5775N/M6N': 'R-5670N', 'R-5775K/M6K': 'R-5670K', 'R-5775NE': 'R-5670NE',
+  'IT-968': 'IT-968 B', 'IT-958G': 'IT-958G', 'IT-968 SE': 'IT-968SE B', 'NY6300': 'NY6300P',
+  '85N': '85N', 'VT-901': 'VT-901',
+}
+
+// 当前匹配到的 PP 型号（叠层生成时 PP 行“类型”的默认值）
+const currentPpModel = ref('')
 
 // 材料选项覆盖：板材种类按清单分类，芯板型号/品牌取清单中的全部值
 opts.materialType = ['FR4', '高频', '高速', 'PI', '混压板']
@@ -254,82 +267,96 @@ opts.materialVersion = [...new Set(Object.values(materialRules).flatMap(r => r.v
 opts.materialBrand = ['生益', '联茂', '建滔', '华正', '超声', '松下', 'Isola', '台光', '台耀', '南亚', 'Rogers', 'Neclo', 'Arlon', '腾辉', '其它']
 opts.materialTg = [{ value: false, label: '中TG' }, { value: true, label: '高TG' }]
 
-// 材料字段旧值：弹窗取消时回滚
+// 材料字段旧值：弹窗提示不可更改时回滚
 const prevMaterial: Record<string, any> = {
   materialType: form.materialType, materialVersion: form.materialVersion,
   materialBrand: form.materialBrand, materialTg: form.materialTg, halogenFree: form.halogenFree,
 }
 let materialConfirmOpen = false
 
-// 在板材种类内按顺序挑一个芯板型号：优先高TG
-function pickVersionForType(type: string): string {
-  const rule = ruleForType(type)
-  if (!rule || !rule.versions.length) return ''
-  return rule.versions.find(v => versionDetailMap[v]?.tg === '高TG') || rule.versions[0]
-}
-
-// 按芯板型号替换 品牌/TG/无卤
-function fillThreeValues(version: string) {
-  const d = versionDetailMap[version]
-  if (!d) return
-  form.materialBrand = d.brand
-  form.materialTg = d.tg === '高TG'
-  form.halogenFree = d.halogen
+function syncPrevMaterial() {
+  prevMaterial.materialType = form.materialType
+  prevMaterial.materialVersion = form.materialVersion
   prevMaterial.materialBrand = form.materialBrand
   prevMaterial.materialTg = form.materialTg
   prevMaterial.halogenFree = form.halogenFree
 }
 
-// 板材种类+芯板型号整体赋值（弹窗确认后使用）
-function assignMaterial(type: string, version: string) {
-  form.materialType = type
-  form.materialVersion = version
-  fillThreeValues(version)
-  prevMaterial.materialType = type
-  prevMaterial.materialVersion = version
+// 型号 → 所属板材种类（板材型号优先级最高，用于带出材料类型）
+const versionTypeMap: Record<string, string> = {}
+for (const [typeName, rule] of Object.entries(materialRules)) {
+  for (const v of rule.versions) versionTypeMap[v] = typeName
 }
 
-// 找字段值匹配的芯板型号：先在当前板材种类内找，找不到再全局找（返回所属板材种类+型号）
-function findVersionByValue(field: 'brand' | 'tg' | 'halogen', value: any, currentType: string): { type: string; version: string } | null {
-  const match = (v: string) => {
-    const d = versionDetailMap[v]
-    if (!d) return false
-    if (field === 'brand') return d.brand === value
-    if (field === 'tg') return d.tg === value
-    return d.halogen === value
-  }
-  const rule = ruleForType(currentType)
-  if (rule) {
-    const v = rule.versions.find(match)
-    if (v) return { type: currentType, version: v }
-  }
-  for (const [t, r] of Object.entries(materialRules)) {
-    if (t === currentType) continue
-    const v = r.versions.find(match)
-    if (v) return { type: t, version: v }
-  }
-  return null
+// 按芯板型号带出 材料类型/品牌/TG/无卤，并记录对应 PP 型号
+function fillByVersion(version: string) {
+  const d = versionDetailMap[version]
+  if (!d) return
+  form.materialType = versionTypeMap[version] || form.materialType
+  form.materialBrand = d.brand
+  form.materialTg = d.tg === '高TG'
+  form.halogenFree = d.halogen
+  currentPpModel.value = ppMap[version] || ''
 }
 
-// 板材种类变化：型号对得上 → 不做处理；对不上 → 弹窗，确认后按新种类重新匹配一条数据（优先高TG）
+// 无型号时按材料类型补默认（P10工厂材料使用规则），并记录对应 PP 型号
+function applyTypeDefaults(typeRaw: string, tgProvided: boolean) {
+  const t = String(typeRaw)
+  if (t === 'FR4' || t === 'FR-4') {
+    if (tgProvided && form.materialTg === false) {
+      // 提供中TG要求：S1000H + S1000HB PP，有卤
+      form.materialVersion = 'S1000H'
+      form.materialBrand = '生益'
+      form.materialTg = false
+      form.halogenFree = false
+      currentPpModel.value = 'S1000HB'
+    } else {
+      // 默认高TG：S1000-2M + S1000-2MB PP
+      form.materialVersion = 'S1000-2M'
+      form.materialBrand = '生益'
+      form.materialTg = true
+      form.halogenFree = false
+      currentPpModel.value = 'S1000-2MB'
+    }
+    return
+  }
+  const dft: Record<string, string> = { '高频': 'RO4350B', '高频板': 'RO4350B', '高速': 'IT-170GRA1', '高速板材': 'IT-170GRA1', 'PI': 'VT-901', 'PI板材': 'VT-901' }
+  const v = dft[t]
+  if (!v) return
+  const d = versionDetailMap[v]
+  form.materialVersion = v
+  form.materialBrand = d ? d.brand : ''
+  form.materialTg = d ? d.tg === '高TG' : true
+  form.halogenFree = d ? d.halogen : false
+  currentPpModel.value = ppMap[v] || ''
+}
+
+// 数据到达后的材料匹配：型号优先带出；无型号且提供类型未提供品牌 → 按类型补默认
+function applyMaterialPriorityRules(data: Record<string, any>) {
+  const version = form.materialVersion
+  if (version && versionDetailMap[version]) {
+    fillByVersion(version)
+    return
+  }
+  const typeRaw = data.materialType?.value ?? data.materialType
+  const brandRaw = data.materialBrand?.value ?? data.materialBrand
+  const tgRaw = data.materialTg?.value ?? data.materialTg
+  if (typeRaw && !brandRaw && !form.materialBrand) applyTypeDefaults(String(typeRaw), tgRaw !== undefined && tgRaw !== null)
+  else currentPpModel.value = ''
+}
+
+// 板材种类变化：已匹配板材型号时不可更改（混压板例外，可自由改）
 function onMaterialTypeChange() {
   if (materialConfirmOpen) return
-  if (isMixMaterial()) { prevMaterial.materialType = form.materialType; return }
   const oldType = prevMaterial.materialType
   const version = form.materialVersion
-  if (!version) { prevMaterial.materialType = form.materialType; return }
-  const rule = ruleForType(form.materialType)
-  if (rule && rule.versionDetail[version]) { prevMaterial.materialType = form.materialType; return }
+  if (!version || form.materialType === '混压板') { prevMaterial.materialType = form.materialType; return }
   materialConfirmOpen = true
-  ElMessageBox.confirm(`芯板型号「${version}」不属于板材种类「${form.materialType}」，是否确认重新匹配板材型号？`, '材料配置冲突', {
-    confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning',
-  }).then(() => {
-    const v = pickVersionForType(form.materialType)
-    if (v) assignMaterial(form.materialType, v)
-    else prevMaterial.materialType = form.materialType
-  }).catch(() => {
-    form.materialType = oldType
+  ElMessageBox.alert('当前的值已匹配板材型号，不可更改', '提示', {
+    confirmButtonText: '确定', type: 'warning',
   }).finally(() => {
+    form.materialType = oldType
+    prevMaterial.materialType = oldType
     materialConfirmOpen = false
   })
 }
@@ -340,39 +367,23 @@ function onMaterialVersionSelect(item: Record<string, any>) {
   onMaterialVersionChange()
 }
 
-// 板材型号变化：与板材种类匹配 → 直接替换品牌/TG/无卤；不匹配 → 弹窗，确认后按当前板材种类重新匹配（优先高TG）
+// 板材型号变化：选中后自动带出 材料类型/品牌/TG/无卤（混压板时保留混压板，只带品牌/TG/无卤）
 function onMaterialVersionChange() {
   if (materialConfirmOpen) return
   if (form.materialVersion === prevMaterial.materialVersion) return
-  // 混压板：任何芯板型号都能匹配 → 直接替换品牌/TG/无卤
-  if (isMixMaterial()) {
-    if (form.materialVersion) fillThreeValues(form.materialVersion)
-    prevMaterial.materialVersion = form.materialVersion
-    return
-  }
-  const oldVersion = prevMaterial.materialVersion
   const version = form.materialVersion
-  if (!version) { prevMaterial.materialVersion = version; return }
+  if (!version) { currentPpModel.value = ''; syncPrevMaterial(); return }
   const d = versionDetailMap[version]
-  if (!d) { prevMaterial.materialVersion = version; return }
-  const rule = ruleForType(form.materialType)
-  if (rule && rule.versionDetail[version]) {
-    fillThreeValues(version)
-    prevMaterial.materialVersion = version
-    return
+  if (!d) { currentPpModel.value = ''; syncPrevMaterial(); return }
+  currentPpModel.value = ppMap[version] || ''
+  if (form.materialType === '混压板') {
+    form.materialBrand = d.brand
+    form.materialTg = d.tg === '高TG'
+    form.halogenFree = d.halogen
+  } else {
+    fillByVersion(version)
   }
-  materialConfirmOpen = true
-  ElMessageBox.confirm(`芯板型号「${version}」不属于板材种类「${form.materialType}」，是否确认重新匹配板材型号？`, '材料配置冲突', {
-    confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning',
-  }).then(() => {
-    const v = pickVersionForType(form.materialType)
-    if (v) assignMaterial(form.materialType, v)
-    else prevMaterial.materialVersion = version
-  }).catch(() => {
-    form.materialVersion = oldVersion
-  }).finally(() => {
-    materialConfirmOpen = false
-  })
+  syncPrevMaterial()
 }
 
 // 下拉选中建议项时 v-model 尚未更新，先写入值再走校验
@@ -381,105 +392,47 @@ function onMaterialBrandSelect(item: Record<string, any>) {
   onMaterialBrandChange()
 }
 
-// 板材品牌变化：与板材型号比对（未选型号时与板材种类比对）；不正确弹窗，确认后找匹配的板材型号赋值
+// 板材品牌变化：已匹配板材型号时不可更改（混压板例外）
 function onMaterialBrandChange() {
   if (materialConfirmOpen) return
-  if (form.materialBrand === prevMaterial.materialBrand) return
-  if (isMixMaterial()) { prevMaterial.materialBrand = form.materialBrand; return }
   const oldBrand = prevMaterial.materialBrand
-  if (!form.materialBrand) { prevMaterial.materialBrand = form.materialBrand; return }
-  const version = form.materialVersion
-  const d = version ? versionDetailMap[version] || null : null
-  const rule = ruleForType(form.materialType)
-  let conflictMsg = ''
-  if (d) {
-    if (d.brand === form.materialBrand) { prevMaterial.materialBrand = form.materialBrand; return }
-    conflictMsg = `板材品牌「${form.materialBrand}」与芯板型号「${version}」不匹配`
-  } else if (rule && rule.brands.length) {
-    if (rule.brands.includes(form.materialBrand)) { prevMaterial.materialBrand = form.materialBrand; return }
-    conflictMsg = `板材品牌「${form.materialBrand}」与板材种类「${form.materialType}」不匹配`
-  } else {
-    prevMaterial.materialBrand = form.materialBrand
-    return
-  }
+  if (form.materialBrand === oldBrand) return
+  if (!form.materialVersion || form.materialType === '混压板') { prevMaterial.materialBrand = form.materialBrand; return }
   materialConfirmOpen = true
-  ElMessageBox.confirm(`${conflictMsg}，是否确认重新匹配板材型号？`, '材料配置冲突', {
-    confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning',
-  }).then(() => {
-    const found = findVersionByValue('brand', form.materialBrand, form.materialType)
-    if (found) assignMaterial(found.type, found.version)
-    else prevMaterial.materialBrand = form.materialBrand
-  }).catch(() => {
-    form.materialBrand = oldBrand
+  ElMessageBox.alert('当前的值已匹配板材型号，不可更改', '提示', {
+    confirmButtonText: '确定', type: 'warning',
   }).finally(() => {
+    form.materialBrand = oldBrand
     materialConfirmOpen = false
   })
 }
 
-// TG值变化：与板材型号比对（未选型号时与板材种类比对）；不正确弹窗，确认后找匹配的板材型号赋值
+// TG值变化：已匹配板材型号时不可更改（混压板例外）
 function onMaterialTgChange() {
   if (materialConfirmOpen) return
-  if (isMixMaterial()) { prevMaterial.materialTg = form.materialTg; return }
   const oldTg = prevMaterial.materialTg
-  const tgSel = form.materialTg ? '高TG' : '中TG'
-  const version = form.materialVersion
-  const d = version ? versionDetailMap[version] || null : null
-  const rule = ruleForType(form.materialType)
-  let conflictMsg = ''
-  if (d) {
-    if (d.tg === tgSel) { prevMaterial.materialTg = form.materialTg; return }
-    conflictMsg = `芯板型号「${version}」为${d.tg}，与所选TG值「${tgSel}」不匹配`
-  } else if (rule && rule.tg.length) {
-    if (rule.tg.includes(tgSel)) { prevMaterial.materialTg = form.materialTg; return }
-    conflictMsg = `板材种类「${form.materialType}」仅支持${rule.tg.join('、')}，与所选TG值「${tgSel}」不匹配`
-  } else {
-    prevMaterial.materialTg = form.materialTg
-    return
-  }
+  if (form.materialTg === oldTg) return
+  if (!form.materialVersion || form.materialType === '混压板') { prevMaterial.materialTg = form.materialTg; return }
   materialConfirmOpen = true
-  ElMessageBox.confirm(`${conflictMsg}，是否确认重新匹配板材型号？`, '材料配置冲突', {
-    confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning',
-  }).then(() => {
-    const found = findVersionByValue('tg', tgSel, form.materialType)
-    if (found) assignMaterial(found.type, found.version)
-    else prevMaterial.materialTg = form.materialTg
-  }).catch(() => {
-    form.materialTg = oldTg
+  ElMessageBox.alert('当前的值已匹配板材型号，不可更改', '提示', {
+    confirmButtonText: '确定', type: 'warning',
   }).finally(() => {
+    form.materialTg = oldTg
     materialConfirmOpen = false
   })
 }
 
-// 无卤变化：与板材型号比对（未选型号时与板材种类比对）；不正确弹窗，确认后找匹配的板材型号赋值
+// 无卤变化：已匹配板材型号时不可更改（混压板例外）
 function onMaterialHalogenChange() {
   if (materialConfirmOpen) return
-  if (isMixMaterial()) { prevMaterial.halogenFree = form.halogenFree; return }
   const oldHalogen = prevMaterial.halogenFree
-  const hfSel = form.halogenFree ? '是' : '否'
-  const version = form.materialVersion
-  const d = version ? versionDetailMap[version] || null : null
-  const rule = ruleForType(form.materialType)
-  let conflictMsg = ''
-  if (d) {
-    if (d.halogen === form.halogenFree) { prevMaterial.halogenFree = form.halogenFree; return }
-    conflictMsg = `芯板型号「${version}」${d.halogen ? '是' : '不是'}无卤板材，与所选「${hfSel}」不匹配`
-  } else if (rule && rule.halogen.length) {
-    if (rule.halogen.includes(hfSel)) { prevMaterial.halogenFree = form.halogenFree; return }
-    conflictMsg = `板材种类「${form.materialType}」清单内均${rule.halogen[0] === '是' ? '为' : '不为'}无卤板材，与所选「${hfSel}」不匹配`
-  } else {
-    prevMaterial.halogenFree = form.halogenFree
-    return
-  }
+  if (form.halogenFree === oldHalogen) return
+  if (!form.materialVersion || form.materialType === '混压板') { prevMaterial.halogenFree = form.halogenFree; return }
   materialConfirmOpen = true
-  ElMessageBox.confirm(`${conflictMsg}，是否确认重新匹配板材型号？`, '材料配置冲突', {
-    confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning',
-  }).then(() => {
-    const found = findVersionByValue('halogen', form.halogenFree, form.materialType)
-    if (found) assignMaterial(found.type, found.version)
-    else prevMaterial.halogenFree = form.halogenFree
-  }).catch(() => {
-    form.halogenFree = oldHalogen
+  ElMessageBox.alert('当前的值已匹配板材型号，不可更改', '提示', {
+    confirmButtonText: '确定', type: 'warning',
   }).finally(() => {
+    form.halogenFree = oldHalogen
     materialConfirmOpen = false
   })
 }
@@ -818,7 +771,7 @@ function innerCuMil(): number {
 }
 
 function makeCu(outer: boolean): StackupRow {
-  return { layerName: '', material: 'CU', pcbMaterialType: '', copperThickness: outer ? outerCuMil() : innerCuMil(), dielectricThickness: null, dk: null }
+  return { layerName: '', material: 'CU', pcbMaterialType: 'HTE', copperThickness: outer ? outerCuMil() : innerCuMil(), dielectricThickness: null, dk: null }
 }
 
 const stackupScheme = ref<'normal' | 'alt'>('normal')
@@ -827,6 +780,8 @@ function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
   const rows: StackupRow[] = []
   const M1 = scheme === 'normal' ? 'PP' : 'CORE'
   const M2 = scheme === 'normal' ? 'CORE' : 'PP'
+  // PP 行“类型”默认值 = 当前匹配存储的 PP 型号
+  const ppType = (m: string) => m === 'PP' ? currentPpModel.value : ''
   if (N === 1) {
     rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
   } else if (N === 2) {
@@ -834,13 +789,21 @@ function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
   } else if (N >= 4 && N % 2 === 0) {
     rows.push(makeCu(true))
     for (let i = 0; i < N / 2 - 1; i++) {
-      rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false))
+      rows.push({ layerName: '', material: M1, pcbMaterialType: ppType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: ppType(M2), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false))
     }
-    rows.push({ layerName: '', material: M1, pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
+    rows.push({ layerName: '', material: M1, pcbMaterialType: ppType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
   }
   let cuIdx = 0
   stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
 }
+
+// 匹配到 PP 型号后，给叠层里未填“类型”的 PP 行补默认值
+watch(currentPpModel, (pp) => {
+  if (!pp) return
+  stackupRows.value.forEach(r => {
+    if (r.material === 'PP' && !r.pcbMaterialType) r.pcbMaterialType = pp
+  })
+})
 
 function toggleStackupScheme() {
   stackupScheme.value = stackupScheme.value === 'normal' ? 'alt' : 'normal'
@@ -874,10 +837,10 @@ function insertStackupRow(index: number) {
   stackupRows.value.splice(index + 1, 0, { layerName: '', material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null })
 }
 
-// 材料切换时清空不可编辑的字段
+// 材料切换时重置字段：CU 行类型默认 HTE，非 CU 行清空铜厚
 function onMaterialChange(row: StackupRow) {
   if (row.material === 'CU') {
-    row.pcbMaterialType = ''
+    row.pcbMaterialType = 'HTE'
     row.dielectricThickness = null
     row.dk = null
   } else {
@@ -1150,7 +1113,13 @@ function sourceLabel(f: string): string {
   if (s==='server default' || hasDefault(f)) return '默认行业标准'
   return ''
 }
-function sourceClass(f: string): string { const s = fieldSource[f]; if (s==='ai') return 'badge ai'; if (s==='cam') return 'badge extracted'; return 'badge empty' }
+function sourceClass(f: string): string {
+  if (userModifiedFields.value.has(f)) return 'badge user'
+  const s = fieldSource[f]
+  if (s==='ai') return 'badge ai'
+  if (s==='cam') return 'badge extracted'
+  return 'badge empty'
+}
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
@@ -1174,6 +1143,8 @@ function applyFieldData(data: Record<string, any>) {
     else form[k]=v
     if(s) fieldSource[k]=s; fieldRawData[k]=e
   }
+  // 材料匹配规则：型号优先带出；无型号且提供类型未提供品牌 → 按类型补默认
+  applyMaterialPriorityRules(data)
   applyingData = false
   // 以本次同步后的值作为新基准：Qt/AI 回传的值不算用户改动
   for (const k of Object.keys(data)) {
@@ -1732,6 +1703,7 @@ onUnmounted(() => {
 .badge.ai { background: #f3e8ff; color: #7c3aed; border: 1px solid #d8b4fe; }
 .badge.empty { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
 .badge.empty:empty { display: none; }
+.badge.user { background: #f0faf2; color: #00b42a; border: 1px solid #b7ebc2; }
 .td-src { text-align: center; }
 .td-view { text-align: center; }
 

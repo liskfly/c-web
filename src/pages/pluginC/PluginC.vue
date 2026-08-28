@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify } from '@/api/pcb'
+import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify, unpaidAuditCallback } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElMessageBox, ElDialog, ElButton, ElAutocomplete, ElSwitch, ElTable, ElTableColumn } from 'element-plus'
@@ -661,6 +661,78 @@ watch(() => form.specialProcesses, (val) => {
     form.remark.push(KEY + '|' + `特殊工艺：超出P10工厂能力（${invalid.join('、')}），走线下下单模式进行`)
   }
 })
+
+// ==================== P10 超能力汇总（提交订单时用于人工审核参数） ====================
+// 汇总所有超P10项，每条 "字段中文名：值，超制程;"
+function collectP10Reasons(): string[] {
+  const reasons: string[] = []
+  const add = (label: string, value: string) => reasons.push(`${label}：${value}，超制程;`)
+  const hasVal = (v: any) => v !== null && v !== undefined && v !== ''
+  const num = (v: any) => Number(v)
+  const numOver = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > t
+  const numBelow = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > 0 && num(v) < t
+  const layerCount = num(form.layerCount)
+  const innerLayer = Number.isFinite(layerCount) && layerCount > 2
+  // 板子层数
+  if (hasVal(form.layerCount) && Number.isFinite(layerCount) && layerCount > 20) add('板子层数', `${form.layerCount}层`)
+  // 盲埋孔
+  if (form.blindVia) add('盲埋孔', '是')
+  // 内层基铜厚度
+  if (innerLayer && numOver(form.innerCopperThickness, 2)) add('内层基铜厚度', `${form.innerCopperThickness}oz`)
+  // 外层基铜厚度
+  if (numOver(form.outerBaseCopperThickness, 70)) add('外层基铜厚度', `${form.outerBaseCopperThickness}um`)
+  // 外层完成铜厚度
+  if (numOver(form.outerCopperThickness, 105)) add('外层完成铜厚度', `${form.outerCopperThickness}um`)
+  // 最小沉金金厚
+  if (form.surfaceFinish === '沉金' && numOver(form.enigGoldThickness, 0.0762)) add('最小沉金金厚', `${form.enigGoldThickness}um`)
+  // 最小孔铜
+  if (numOver(form.holeCopperThickness, 25.4)) add('最小孔铜', `${form.holeCopperThickness}um`)
+  // 成品板厚
+  if (hasVal(form.boardThickness) && Number.isFinite(num(form.boardThickness)) && num(form.boardThickness) > 0 && (num(form.boardThickness) < 0.6 || num(form.boardThickness) > 3.5)) add('成品板厚', `${form.boardThickness}mm`)
+  // 外形公差
+  if (numBelow(form.dimensionTolerance, 0.1)) add('外形公差', `${form.dimensionTolerance}mm`)
+  // 翘曲度
+  {
+    const m = String(form.maxWarpage ?? '').match(/[0-9]*\.?[0-9]+/)
+    const wn = m ? Number(m[0]) : NaN
+    if (Number.isFinite(wn) && wn > 0 && wn < 0.5) add('翘曲度', `${wn}%`)
+  }
+  // 外层最小线宽/线距
+  if (numBelow(form.minTraceWidthOuter, 3)) add('外层最小线宽', `${form.minTraceWidthOuter}mil`)
+  if (numBelow(form.minTraceSpacingOuter, 3)) add('外层最小线距', `${form.minTraceSpacingOuter}mil`)
+  // 内层最小线宽/线距
+  if (innerLayer && numBelow(form.minTraceWidthInner, 2.5)) add('内层最小线宽', `${form.minTraceWidthInner}mil`)
+  if (innerLayer && numBelow(form.minTraceSpacingInner, 2.5)) add('内层最小线距', `${form.minTraceSpacingInner}mil`)
+  // 最小孔径
+  if (numBelow(form.minHoleSize, 0.15)) add('最小孔径', `${form.minHoleSize}mm`)
+  // 阻焊颜色
+  if (form.solderMaskColor === '红色') add('阻焊颜色', '红色')
+  // 字符颜色
+  if (form.silkscreenColor && !['白色字符', '黑色字符', '不印字符'].includes(form.silkscreenColor)) add('字符颜色', form.silkscreenColor)
+  // 表面处理
+  if (form.surfaceFinish && !['沉金', '无铅喷锡', 'OSP', '喷锡', '沉银', '沉锡', '无需表面处理'].includes(form.surfaceFinish)) add('表面处理', form.surfaceFinish)
+  // 验收标准
+  if (form.acceptanceStandard && !['IPC 2', 'IPC 3'].includes(form.acceptanceStandard)) add('验收标准', form.acceptanceStandard)
+  // 周期格式
+  if (form.periodFormat && !['WWYY', 'YYWW', 'MMYY', 'YYMM', 'DDMMYY', 'YYMMDD'].includes(form.periodFormat)) add('周期格式', form.periodFormat)
+  // 测试要求 / 出货报告 / 特殊工艺：清单外项
+  const listInvalid = (val: any, allowed: string[]) => Array.isArray(val) ? (val as string[]).filter((v: string) => !allowed.includes(v)) : []
+  const testInvalid = listInvalid(form.testRequirements, ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '不需要', '飞针测试', '夹具测试'])
+  if (testInvalid.length) add('测试要求', testInvalid.join('、'))
+  const shipInvalid = listInvalid(form.shippingReports, ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '不需要'])
+  if (shipInvalid.length) add('出货报告', shipInvalid.join('、'))
+  const spInvalid = listInvalid(form.specialProcesses, ['电镀填孔', '金属包边', '金属化半孔', '背钻孔', '锥形孔', '阶梯孔', '铣阶梯槽', '控深钻', '不需要'])
+  if (spInvalid.length) add('特殊工艺', spInvalid.join('、'))
+  // PCS / SET 尺寸超限
+  const pw = num(form.pcsSizeWidth)
+  const ph = num(form.pcsSizeHeight)
+  const sw = num(form.setSizeWidth)
+  const sh = num(form.setSizeHeight)
+  const sizeInvalid = (w: number, h: number) => Number.isFinite(w) && Number.isFinite(h) && ((w > 571.5 && (h <= 0 || h > 419.1)) || (h > 571.5 && (w <= 0 || w > 419.1)))
+  if (sizeInvalid(pw, ph)) add('PCS尺寸', `${form.pcsSizeWidth}x${form.pcsSizeHeight}mm`)
+  if (sizeInvalid(sw, sh)) add('SET尺寸', `${form.setSizeWidth}x${form.setSizeHeight}mm`)
+  return reasons
+}
 
 const computedDrillDensity = computed(() => {
   const v = form.clientPanelVertical
@@ -1447,12 +1519,16 @@ async function handleQtMessage(event: Event) {
     qrOrderNo.value = ''
 
     try {
+      // P10 超能力汇总：存在超P10 → 0（转人工审核），符合P10 → 1
+      const auditReasons = collectP10Reasons()
       const orderRes: any = await orderCreate(userToken.value, {
         task_id: taskId.value,
         receiver_id: addrId,
         invoice_id: invId,
         invoice_type: Number(invType),
         freight_price: 0,
+        task_audit_status: auditReasons.length ? 0 : 1,
+        ...(auditReasons.length ? { audit_control_reasons: auditReasons.join('') } : {}),
         pcbQuoteParams: orderPayload(),
       })
       if (!componentActive || !orderWorkflowPending) return
@@ -1463,6 +1539,24 @@ async function handleQtMessage(event: Event) {
       }
 
       const orderNo = orderRes.data.order_no
+
+      // 超P10：转人工审核，成功后禁止再次提交；失败则停止，可重新点击按钮重试
+      if (auditReasons.length) {
+        try {
+          const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
+          if (Number(auditRes.code) === 200) {
+            ElMessage.success('未付款转人工审核成功,已通知前端')
+            orderCompleted.value = true
+            return
+          }
+          ElMessage.error(auditRes.message || '转人工审核失败，请重新点击提交重试')
+          return
+        } catch (error) {
+          reportError('未付款转人工审核', error, '转人工审核请求失败，请重新点击提交重试')
+          return
+        }
+      }
+
       const payRes: any = await pcbPayV2(userToken.value, { order_no: orderNo })
       if (!componentActive || !orderWorkflowPending) return
       if (String(payRes.code) !== '10000' || !payRes.data?.order_str) {
@@ -1603,7 +1697,7 @@ onUnmounted(() => {
               <tr><td>内层最小线距<span class="req">*</span></td><td :class="fieldBgClass('minTraceSpacingInner')"><el-input-number :controls="false" v-model="form.minTraceSpacingInner" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingInner')">{{ sourceLabel('minTraceSpacingInner') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingInner')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingInner')">图形</button><button v-if="showDocBtn('minTraceSpacingInner')" class="btn-view doc" @click="handleViewClick('minTraceSpacingInner')">加工文档</button></td></tr>
               </template>
             <tr><td>最小孔径<span class="req">*</span></td><td :class="fieldBgClass('minHoleSize')"><el-input-number :controls="false" v-model="form.minHoleSize" :min="0" :precision="3" size="small" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('minHoleSize')">{{ sourceLabel('minHoleSize') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minHoleSize')" class="btn-view graphic" @click="handleViewClick('minHoleSize')">图形</button><button v-if="showDocBtn('minHoleSize')" class="btn-view doc" @click="handleViewClick('minHoleSize')">加工文档</button></td></tr>
-			            <tr><td>孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge empty"></span></td><td class="td-view"></td></tr>
+			            <tr><td>钻孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge empty"></span></td><td class="td-view"></td></tr>
 			            <tr><td>通孔孔数/PCS</td><td :class="fieldBgClass('holeCount')"><el-input-number :controls="false" v-model="form.holeCount" :min="0" :precision="0" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('holeCount')">{{ sourceLabel('holeCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCount')" class="btn-view graphic" @click="handleViewClick('holeCount')">图形</button><button v-if="showDocBtn('holeCount')" class="btn-view doc" @click="handleViewClick('holeCount')">加工文档</button></td></tr>
             <tr><td>最小孔铜<span class="req">*</span></td><td :class="fieldBgClass('holeCopperThickness')"><el-autocomplete v-model="form.holeCopperThickness" :fetch-suggestions="queryHoleCopperThickness" size="small" style="width:100%" placeholder="输入或选择" clearable @select="(item: any) => { form.holeCopperThickness = item.value }"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }} um</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('holeCopperThickness')">{{ sourceLabel('holeCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCopperThickness')" class="btn-view graphic" @click="handleViewClick('holeCopperThickness')">图形</button><button v-if="showDocBtn('holeCopperThickness')" class="btn-view doc" @click="handleViewClick('holeCopperThickness')">加工文档</button></td></tr>
             <tr><td>阻焊颜色<span class="req">*</span></td><td :class="fieldBgClass('solderMaskColor')"><el-select v-model="form.solderMaskColor" size="small" style="width:100%"><el-option v-for="v in opts.solderMaskColor" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('solderMaskColor')">{{ sourceLabel('solderMaskColor') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('solderMaskColor')" class="btn-view graphic" @click="handleViewClick('solderMaskColor')">图形</button><button v-if="showDocBtn('solderMaskColor')" class="btn-view doc" @click="handleViewClick('solderMaskColor')">加工文档</button></td></tr>

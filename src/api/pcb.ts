@@ -7,6 +7,8 @@ export function orderCreate(token: string, data: {
   invoice_id: number
   invoice_type: number
   freight_price: number
+  task_audit_status?: number
+  audit_control_reasons?: string
   pcbQuoteParams: Record<string, any>
 }) {
   return request({
@@ -14,6 +16,15 @@ export function orderCreate(token: string, data: {
     method: 'post',
     data,
     headers: { Authorization: token },
+  })
+}
+
+/** 未付款转人工审核回调 */
+export function unpaidAuditCallback(data: { taskId: string; order_no: string }) {
+  return request({
+    url: '/proxy/asem/elecnest/UnpaidAuditCallback',
+    method: 'post',
+    data,
   })
 }
 

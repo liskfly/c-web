@@ -2,7 +2,7 @@
 import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import InvoiceSection from './InvoiceSection.vue'
 import DeliverySection from './DeliverySection.vue'
-import { orderCreate, payCallback } from '@/api/pcb'
+import { orderCreate, payCallback, unpaidAuditCallback } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { ElInput, ElSelect, ElOption, ElInputNumber, ElMessage, ElMessageBox, ElDialog, ElButton, ElAutocomplete, ElSwitch, ElTable, ElTableColumn } from 'element-plus'
@@ -22,7 +22,7 @@ const form = reactive<Record<string, any>>({
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
   minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
   surfaceFinish: "无铅喷锡", enigGoldThickness: 0.0508, immersionGoldArea: 20.0,
-  viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.38,
+  viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.381,
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
   acceptanceStandard: "IPC 2", impedanceControl: false,
   markingRequirements: ["不需要"] as string[], periodFormat: "WWYY",
@@ -43,7 +43,7 @@ const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify({
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
   minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
   surfaceFinish: "无铅喷锡", enigGoldThickness: 0.0508, immersionGoldArea: 20.0,
-  viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.38,
+  viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.381,
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
   acceptanceStandard: "IPC 2", impedanceControl: false,
   markingRequirements: ["不需要"], periodFormat: "WWYY",
@@ -122,7 +122,7 @@ const opts: Record<string, any[]> = {
   enigGoldThickness: ["0.0508","0.0762","0.080","0.1016"],
   viaProcess: ["按Gerber文件","阻焊覆盖","BGA芯片处阻焊塞孔+按Gerber文件","不盖阻焊","阻焊塞孔","非导电树脂塞孔","非导电树脂塞孔+电镀填平"],
   goldFingerType: ["无","常规金手指","分段金手指","长短金手指"],
-  goldFingerThickness: ["0.38","0.8","1.25"],
+  goldFingerThickness: ["0.381","0.762","0.8","1.25"],
   goldFingerChamferAngle: ["20°","30°","45°","不倒角"],
   acceptanceStandard: ["IPC 2","IPC 3"],
   impedanceControl: [{ value: false, label: '否' }, { value: true, label: '是' }],
@@ -684,6 +684,78 @@ watch(() => form.maxWarpage, (val) => {
     form.remark.push(KEY + '|' + '翘曲度：小于0.5%，超出P10工厂能力，走线下下单模式进行')
   }
 })
+// ==================== P10 超能力汇总（提交订单时用于人工审核参数） ====================
+// 汇总所有超P10项，每条 "字段中文名：值，超制程;"
+function collectP10Reasons(): string[] {
+  const reasons: string[] = []
+  const add = (label: string, value: string) => reasons.push(`${label}：${value}，超制程;`)
+  const hasVal = (v: any) => v !== null && v !== undefined && v !== ''
+  const num = (v: any) => Number(v)
+  const numOver = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > t
+  const numBelow = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > 0 && num(v) < t
+  const layerCount = num(form.layerCount)
+  const innerLayer = Number.isFinite(layerCount) && layerCount > 2
+  // 板子层数
+  if (hasVal(form.layerCount) && Number.isFinite(layerCount) && layerCount > 20) add('板子层数', `${form.layerCount}层`)
+  // 盲埋孔
+  if (form.blindVia) add('盲埋孔', '是')
+  // 内层基铜厚度
+  if (innerLayer && numOver(form.innerCopperThickness, 2)) add('内层基铜厚度', `${form.innerCopperThickness}oz`)
+  // 外层基铜厚度
+  if (numOver(form.outerBaseCopperThickness, 70)) add('外层基铜厚度', `${form.outerBaseCopperThickness}um`)
+  // 外层完成铜厚度
+  if (numOver(form.outerCopperThickness, 105)) add('外层完成铜厚度', `${form.outerCopperThickness}um`)
+  // 最小沉金金厚
+  if (form.surfaceFinish === '沉金' && numOver(form.enigGoldThickness, 0.0762)) add('最小沉金金厚', `${form.enigGoldThickness}um`)
+  // 最小孔铜
+  if (numOver(form.holeCopperThickness, 25.4)) add('最小孔铜', `${form.holeCopperThickness}um`)
+  // 成品板厚
+  if (hasVal(form.boardThickness) && Number.isFinite(num(form.boardThickness)) && num(form.boardThickness) > 0 && (num(form.boardThickness) < 0.6 || num(form.boardThickness) > 3.5)) add('成品板厚', `${form.boardThickness}mm`)
+  // 外形公差
+  if (numBelow(form.dimensionTolerance, 0.1)) add('外形公差', `${form.dimensionTolerance}mm`)
+  // 翘曲度
+  {
+    const m = String(form.maxWarpage ?? '').match(/[0-9]*\.?[0-9]+/)
+    const wn = m ? Number(m[0]) : NaN
+    if (Number.isFinite(wn) && wn > 0 && wn < 0.5) add('翘曲度', `${wn}%`)
+  }
+  // 外层最小线宽/线距
+  if (numBelow(form.minTraceWidthOuter, 3)) add('外层最小线宽', `${form.minTraceWidthOuter}mil`)
+  if (numBelow(form.minTraceSpacingOuter, 3)) add('外层最小线距', `${form.minTraceSpacingOuter}mil`)
+  // 内层最小线宽/线距
+  if (innerLayer && numBelow(form.minTraceWidthInner, 2.5)) add('内层最小线宽', `${form.minTraceWidthInner}mil`)
+  if (innerLayer && numBelow(form.minTraceSpacingInner, 2.5)) add('内层最小线距', `${form.minTraceSpacingInner}mil`)
+  // 最小孔径
+  if (numBelow(form.minHoleSize, 0.15)) add('最小孔径', `${form.minHoleSize}mm`)
+  // 阻焊颜色
+  if (form.solderMaskColor === '红色') add('阻焊颜色', '红色')
+  // 字符颜色
+  if (form.silkscreenColor && !['白色字符', '黑色字符', '不印字符'].includes(form.silkscreenColor)) add('字符颜色', form.silkscreenColor)
+  // 表面处理
+  if (form.surfaceFinish && !['沉金', '无铅喷锡', 'OSP', '喷锡', '沉银', '沉锡', '无需表面处理'].includes(form.surfaceFinish)) add('表面处理', form.surfaceFinish)
+  // 验收标准
+  if (form.acceptanceStandard && !['IPC 2', 'IPC 3'].includes(form.acceptanceStandard)) add('验收标准', form.acceptanceStandard)
+  // 周期格式
+  if (form.periodFormat && !['WWYY', 'YYWW', 'MMYY', 'YYMM', 'DDMMYY', 'YYMMDD'].includes(form.periodFormat)) add('周期格式', form.periodFormat)
+  // 测试要求 / 出货报告 / 特殊工艺：清单外项
+  const listInvalid = (val: any, allowed: string[]) => Array.isArray(val) ? (val as string[]).filter((v: string) => !allowed.includes(v)) : []
+  const testInvalid = listInvalid(form.testRequirements, ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '不需要', '飞针测试', '夹具测试'])
+  if (testInvalid.length) add('测试要求', testInvalid.join('、'))
+  const shipInvalid = listInvalid(form.shippingReports, ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '不需要'])
+  if (shipInvalid.length) add('出货报告', shipInvalid.join('、'))
+  const spInvalid = listInvalid(form.specialProcesses, ['电镀填孔', '金属包边', '金属化半孔', '背钻孔', '锥形孔', '阶梯孔', '铣阶梯槽', '控深钻', '不需要'])
+  if (spInvalid.length) add('特殊工艺', spInvalid.join('、'))
+  // PCS / SET 尺寸超限
+  const pw = num(form.pcsSizeWidth)
+  const ph = num(form.pcsSizeHeight)
+  const sw = num(form.setSizeWidth)
+  const sh = num(form.setSizeHeight)
+  const sizeInvalid = (w: number, h: number) => Number.isFinite(w) && Number.isFinite(h) && ((w > 571.5 && (h <= 0 || h > 419.1)) || (h > 571.5 && (w <= 0 || w > 419.1)))
+  if (sizeInvalid(pw, ph)) add('PCS尺寸', `${form.pcsSizeWidth}x${form.pcsSizeHeight}mm`)
+  if (sizeInvalid(sw, sh)) add('SET尺寸', `${form.setSizeWidth}x${form.setSizeHeight}mm`)
+  return reasons
+}
+
 const computedDrillDensity = computed(() => {
   const v = form.clientPanelVertical
   const h = form.holeCount
@@ -998,6 +1070,7 @@ const invoiceRef = ref<any>(null)
 const deliveryRef = ref<any>(null)
 const submitting = ref(false)
 const ordering = ref(false)
+const orderCompleted = ref(false)
 const quoteData = ref<any>(null)
 const formDataLoaded = ref(false)
 const tokenReady = ref(false)
@@ -1210,7 +1283,7 @@ async function generatePayQr(orderNo: string) {
 }
 
 function submitOrder() {
-  if (ordering.value) return
+  if (ordering.value || orderCompleted.value) return
   ordering.value = true
   if (!validateForm()) { ordering.value = false; return }
 
@@ -1461,12 +1534,16 @@ async function handleQtMessage(event: Event) {
     qrOrderNo.value = ''
 
     try {
+      // P10 超能力汇总：存在超P10 → 0（转人工审核），符合P10 → 1
+      const auditReasons = collectP10Reasons()
       const orderRes: any = await orderCreate(userToken.value, {
         task_id: taskId.value,
         receiver_id: addrId,
         invoice_id: invId,
         invoice_type: Number(invType),
         freight_price: 0,
+        task_audit_status: auditReasons.length ? 0 : 1,
+        ...(auditReasons.length ? { audit_control_reasons: auditReasons.join('') } : {}),
         pcbQuoteParams: orderPayload(),
       })
       if (!componentActive || !orderWorkflowPending) return
@@ -1477,6 +1554,24 @@ async function handleQtMessage(event: Event) {
       }
 
       const orderNo = orderRes.data.order_no
+
+      // 超P10：转人工审核，成功后禁止再次提交；失败则停止，可重新点击按钮重试
+      if (auditReasons.length) {
+        try {
+          const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
+          if (Number(auditRes.code) === 200) {
+            ElMessage.success('未付款转人工审核成功,已通知前端')
+            orderCompleted.value = true
+            return
+          }
+          ElMessage.error(auditRes.message || '转人工审核失败，请重新点击提交重试')
+          return
+        } catch (error) {
+          reportError('未付款转人工审核', error, '转人工审核请求失败，请重新点击提交重试')
+          return
+        }
+      }
+
       const { qrUrl, mergeOrderNo, timeExpire } = await generatePayQr(orderNo)
       if (!componentActive || !orderWorkflowPending) return
       qrCodeUrl.value = qrUrl
@@ -1658,7 +1753,7 @@ onUnmounted(() => {
         </div>
         <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + formatMoney(quoteData.totalFee) : '--' }}</span></div>
         <button class="btn-submit" :disabled="submitting || !tokenReady" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
-        <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady" @click="submitOrder">{{ ordering ? '提交中...' : '提交订单' }}</button>
+        <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady || orderCompleted" @click="submitOrder">{{ orderCompleted ? '已提交' : ordering ? '提交中...' : '提交订单' }}</button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
       </div>
     </div>

@@ -80,9 +80,17 @@ function fieldBgClass(f: string): string {
 // 用户手动修改标记：与“最近一次 Qt 同步后的值”对比（初始为默认值），
 // Qt/AI 回传的不同值不算用户改动；flush: 'sync' 让 applyingData 保护在同步期间真正生效
 let userBaseline: Record<string, any> = JSON.parse(JSON.stringify(DEFAULT_VALUES))
-// 类型不敏感对比：组件回写导致的 字符串/数字 转换不算改动（如 el-input-number 把 "20" 归一化为 20）
+// 类型不敏感对比：组件回写导致的 字符串/数字 转换不算改动（如 el-input-number 把 "0.0" 归一化为 0）
 function isSameValue(a: any, b: any): boolean {
   if (Array.isArray(a) && Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b)
+  // 一方是数字时按数值比较（容忍 "0.0" vs 0、"20" vs 20）；空值/布尔不参与数值比较
+  if ((typeof a === 'number' || typeof b === 'number') &&
+    typeof a !== 'boolean' && typeof b !== 'boolean' &&
+    a !== null && b !== null && a !== undefined && b !== undefined && a !== '' && b !== '') {
+    const na = Number(a)
+    const nb = Number(b)
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb
+  }
   return String(a) === String(b)
 }
 function rebuildUserModified() {
@@ -91,6 +99,10 @@ function rebuildUserModified() {
     if (!isSameValue(form[k], userBaseline[k])) next.add(k)
   }
   userModifiedFields.value = next
+  // 临时调试：内层线宽/线距被标记时输出对比（定位后删除）
+  ;['minTraceWidthInner', 'minTraceSpacingInner'].forEach(k => {
+    if (next.has(k)) console.log('[修改标记调试]', k, 'form=', form[k], 'baseline=', userBaseline[k], 'source=', fieldSource[k])
+  })
 }
 watch(form, () => {
   if (applyingData) return
@@ -1181,7 +1193,7 @@ function sourceLabel(f: string): string {
   if (userModifiedFields.value.has(f)) return '用户确认'
   const s = fieldSource[f]
   if (s==='ai') return 'AI提参'
-  if (s==='cam') return '文件解析'
+  if (s==='cam') return 'CAM提参'
   // 服务端默认 / 有默认值但未传来源 → 默认行业标准；无默认值无来源 → 空白
   if (s==='server default' || hasDefault(f)) return '默认行业标准'
   return ''
@@ -1476,12 +1488,14 @@ async function handleQtMessage(event: Event) {
   if (rn === 'PCSSize') {
     form.pcsSizeWidth = detail.PCSWidth ?? form.pcsSizeWidth
     form.pcsSizeHeight = detail.PCSHeight ?? form.pcsSizeHeight
+    handleSizeBlur()
     return
   }
 
   if (rn === 'SetSize') {
     form.setSizeWidth = detail.SetSizeWidth ?? form.setSizeWidth
     form.setSizeHeight = detail.SetSizeHeight ?? form.setSizeHeight
+    handleSizeBlur()
     return
   }
 

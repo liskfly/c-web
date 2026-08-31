@@ -78,9 +78,17 @@ function fieldBgClass(f: string): string {
 // 用户手动修改标记：与“最近一次 Qt 同步后的值”对比（初始为默认值），
 // Qt/AI 回传的不同值不算用户改动；flush: 'sync' 让 applyingData 保护在同步期间真正生效
 let userBaseline: Record<string, any> = JSON.parse(JSON.stringify(DEFAULT_VALUES))
-// 类型不敏感对比：组件回写导致的 字符串/数字 转换不算改动（如 el-input-number 把 "20" 归一化为 20）
+// 类型不敏感对比：组件回写导致的 字符串/数字 转换不算改动（如 el-input-number 把 "0.0" 归一化为 0）
 function isSameValue(a: any, b: any): boolean {
   if (Array.isArray(a) && Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b)
+  // 一方是数字时按数值比较（容忍 "0.0" vs 0、"20" vs 20）；空值/布尔不参与数值比较
+  if ((typeof a === 'number' || typeof b === 'number') &&
+    typeof a !== 'boolean' && typeof b !== 'boolean' &&
+    a !== null && b !== null && a !== undefined && b !== undefined && a !== '' && b !== '') {
+    const na = Number(a)
+    const nb = Number(b)
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb
+  }
   return String(a) === String(b)
 }
 function rebuildUserModified() {
@@ -662,6 +670,28 @@ watch(() => form.specialProcesses, (val) => {
   }
 })
 
+// 外形公差超范围提醒（< 0.1mm 超出P10能力）
+watch(() => form.dimensionTolerance, (val) => {
+  const KEY = 'DIMENSION_TOLERANCE_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  const match = String(val ?? '').match(/[0-9]*\.?[0-9]+/)
+  const n = match ? Number(match[0]) : NaN
+  if (Number.isFinite(n) && n > 0 && n < 0.1) {
+    form.remark.push(KEY + '|' + '外形公差：小于0.1mm，超出P10工厂能力，走线下下单模式进行')
+  }
+})
+
+// 翘曲度超范围提醒（< 0.5% 超出P10能力）
+watch(() => form.maxWarpage, (val) => {
+  const KEY = 'WARPAGE_LIMIT'
+  form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+  const match = String(val ?? '').match(/[0-9]*\.?[0-9]+/)
+  const n = match ? Number(match[0]) : NaN
+  if (Number.isFinite(n) && n > 0 && n < 0.5) {
+    form.remark.push(KEY + '|' + '翘曲度：小于0.5%，超出P10工厂能力，走线下下单模式进行')
+  }
+})
+
 const computedDrillDensity = computed(() => {
   const v = form.clientPanelVertical
   const h = form.holeCount
@@ -916,6 +946,19 @@ function handleSizeBlur() {
     }
   }
 
+  // SET 尺寸超限提醒（规则同 PCS）
+  const swOver = sw > 571.5
+  const shOver = sh > 571.5
+  const KEY_SET = 'SET_SIZE_LIMIT'
+  if (Number.isFinite(sw) && Number.isFinite(sh)) {
+    form.remark = form.remark.filter((m: string) => !m.startsWith(KEY_SET + '|'))
+    if (swOver && (sh <= 0 || sh > 419.1)) {
+      form.remark.push(KEY_SET + '|' + 'SET尺寸(水平)已超过 571.5mm，SET尺寸(垂直)需限制在 0-419.1mm 内，超出P10，走线下下单模式进行。')
+    } else if (shOver && (sw <= 0 || sw > 419.1)) {
+      form.remark.push(KEY_SET + '|' + 'SET尺寸(垂直)已超过 571.5mm，SET尺寸(水平)需限制在 0-419.1mm 内，超出P10，走线下下单模式进行。')
+    }
+  }
+
   if (![pw, ph, sw, sh].every(v => Number.isFinite(v) && v > 0)) return
   const pcsArea = pw * ph
   const setArea = sw * sh
@@ -1077,7 +1120,7 @@ function sourceLabel(f: string): string {
   if (userModifiedFields.value.has(f)) return '用户确认'
   const s = fieldSource[f]
   if (s==='ai') return 'AI提参'
-  if (s==='cam') return '文件解析'
+  if (s==='cam') return 'CAM提参'
   // 服务端默认 / 有默认值但未传来源 → 默认行业标准；无默认值无来源 → 空白
   if (s==='server default' || hasDefault(f)) return '默认行业标准'
   return ''
@@ -1379,12 +1422,14 @@ async function handleQtMessage(event: Event) {
   if (rn === 'PCSSize') {
     form.pcsSizeWidth = detail.PCSWidth ?? form.pcsSizeWidth
     form.pcsSizeHeight = detail.PCSHeight ?? form.pcsSizeHeight
+    handleSizeBlur()
     return
   }
 
   if (rn === 'SetSize') {
     form.setSizeWidth = detail.SetSizeWidth ?? form.setSizeWidth
     form.setSizeHeight = detail.SetSizeHeight ?? form.setSizeHeight
+    handleSizeBlur()
     return
   }
 

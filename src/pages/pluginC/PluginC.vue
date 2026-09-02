@@ -14,11 +14,11 @@ const form = reactive<Record<string, any>>({
   pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
-  materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: false, halogenFree: false,
+  materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: true, halogenFree: false,
   maxWarpage: "0.75%", boardThickness: 1.6, thicknessTolerance: "+/-10%",
   outerCopperThickness: 35, outerBaseCopperThickness: 18, innerCopperThickness: 1,
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
-  minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
+  minHoleSize: 0.200, throughHoleQty: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
   surfaceFinish: "无铅喷锡", enigGoldThickness: 0.0508, immersionGoldArea: 20.0,
   viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.381,
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
@@ -35,11 +35,11 @@ const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify({
   pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
-  materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: false, halogenFree: false,
+  materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: true, halogenFree: false,
   maxWarpage: "0.75%", boardThickness: 1.6, thicknessTolerance: "+/-10%",
   outerCopperThickness: 35, outerBaseCopperThickness: 18, innerCopperThickness: 1,
   minTraceWidthOuter: 20, minTraceSpacingOuter: 20, minTraceWidthInner: 20, minTraceSpacingInner: 20,
-  minHoleSize: 0.200, holeCount: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
+  minHoleSize: 0.200, throughHoleQty: null, holeCopperThickness: 20, solderMaskColor: "绿色", silkscreenColor: "白色字符",
   surfaceFinish: "无铅喷锡", enigGoldThickness: 0.0508, immersionGoldArea: 20.0,
   viaProcess: "阻焊塞孔", goldFingerType: "无", goldFingerThickness: 0.381,
   goldFingerChamferAngle: "30°", goldFingerChamferDepth: 0.50, goldFingerChamferRemaining: 0.60,
@@ -269,7 +269,7 @@ const ppMap: Record<string, string> = {
 const currentPpModel = ref('')
 
 // 材料选项覆盖：板材种类按清单分类，芯板型号/品牌取清单中的全部值
-opts.materialType = ['FR4', '高频', '高速', 'PI', '混压板']
+opts.materialType = ['FR4', '高速板材', '高频板', 'PI']
 opts.materialVersion = [...new Set(Object.values(materialRules).flatMap(r => r.versions))]
 opts.materialBrand = ['生益', '联茂', '建滔', '华正', '超声', '松下', 'Isola', '台光', '台耀', '南亚', 'Rogers', 'Neclo', 'Arlon', '腾辉', '其它']
 opts.materialTg = [{ value: false, label: '中TG' }, { value: true, label: '高TG' }]
@@ -290,9 +290,12 @@ function syncPrevMaterial() {
 }
 
 // 型号 → 所属板材种类（板材型号优先级最高，用于带出材料类型）
+// 清单分类键 → 页面显示分类名（高速板材/高频板 等旧称呼）
+const CATEGORY_ALIAS: Record<string, string> = { 'FR4': 'FR4', '高频': '高频板', '高速': '高速板材', 'PI': 'PI' }
 const versionTypeMap: Record<string, string> = {}
 for (const [typeName, rule] of Object.entries(materialRules)) {
-  for (const v of rule.versions) versionTypeMap[v] = typeName
+  const displayName = CATEGORY_ALIAS[typeName] || typeName
+  for (const v of rule.versions) versionTypeMap[v] = displayName
 }
 
 // 按芯板型号带出 材料类型/品牌/TG/无卤，并记录对应 PP 型号
@@ -306,50 +309,47 @@ function fillByVersion(version: string) {
   currentPpModel.value = ppMap[version] || ''
 }
 
-// 无型号时按材料类型补默认（P10工厂材料使用规则），并记录对应 PP 型号
-function applyTypeDefaults(typeRaw: string, tgProvided: boolean) {
-  const t = String(typeRaw)
-  if (t === 'FR4' || t === 'FR-4') {
-    if (tgProvided && form.materialTg === false) {
-      // 提供中TG要求：S1000H + S1000HB PP，有卤
-      form.materialVersion = 'S1000H'
-      form.materialBrand = '生益'
-      form.materialTg = false
-      form.halogenFree = false
-      currentPpModel.value = 'S1000HB'
-    } else {
-      // 默认高TG：S1000-2M + S1000-2MB PP
-      form.materialVersion = 'S1000-2M'
-      form.materialBrand = '生益'
-      form.materialTg = true
-      form.halogenFree = false
-      currentPpModel.value = 'S1000-2MB'
-    }
-    return
-  }
-  const dft: Record<string, string> = { '高频': 'RO4350B', '高频板': 'RO4350B', '高速': 'IT-170GRA1', '高速板材': 'IT-170GRA1', 'PI': 'VT-901', 'PI板材': 'VT-901' }
-  const v = dft[t]
-  if (!v) return
-  const d = versionDetailMap[v]
-  form.materialVersion = v
-  form.materialBrand = d ? d.brand : ''
-  form.materialTg = d ? d.tg === '高TG' : true
-  form.halogenFree = d ? d.halogen : false
-  currentPpModel.value = ppMap[v] || ''
-}
-
-// 数据到达后的材料匹配：型号优先带出；无型号且提供类型未提供品牌 → 按类型补默认
-function applyMaterialPriorityRules(data: Record<string, any>) {
+// 数据到达后的材料匹配：仅当返回了型号时按型号带出；
+// 无型号不做匹配（型号保持空），其余字段有传值用传值、没传值用默认值
+function applyMaterialPriorityRules() {
   const version = form.materialVersion
   if (version && versionDetailMap[version]) {
     fillByVersion(version)
+    // 型号匹配带出的项：来源标记为 AI提参（不算用户改动，不显示用户确认）
+    ;['materialType','materialBrand','materialTg','halogenFree'].forEach(k => { fieldSource[k] = 'ai' })
     return
   }
-  const typeRaw = data.materialType?.value ?? data.materialType
-  const brandRaw = data.materialBrand?.value ?? data.materialBrand
-  const tgRaw = data.materialTg?.value ?? data.materialTg
-  if (typeRaw && !brandRaw && !form.materialBrand) applyTypeDefaults(String(typeRaw), tgRaw !== undefined && tgRaw !== null)
-  else currentPpModel.value = ''
+  currentPpModel.value = ''
+}
+
+// 补出的值：来源标 AI提参 + 同步基准（不算用户改动）
+function markAiAndBaseline(k: string) {
+  fieldSource[k] = 'ai'
+  userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
+}
+
+// 外层完成铜厚度/外层基铜厚度互补规则：只传其一时按规则补另一个
+// 只有基铜：完成铜 = 基铜 + (>=35 ? 35 : 18)
+// 只有完成铜：>=70 → 基铜 = 完成铜-35；<56 → 完成铜-18；56~70 → 相等
+// 两个都传按传值；都没传按默认值
+function applyCopperRules(data: Record<string, any>) {
+  const baseRaw = data.outerBaseCopperThickness?.value ?? data.outerBaseCopperThickness
+  const doneRaw = data.outerCopperThickness?.value ?? data.outerCopperThickness
+  const baseGiven = baseRaw !== undefined && baseRaw !== null && baseRaw !== ''
+  const doneGiven = doneRaw !== undefined && doneRaw !== null && doneRaw !== ''
+  if (baseGiven && !doneGiven) {
+    const base = Number(form.outerBaseCopperThickness)
+    if (Number.isFinite(base)) {
+      form.outerCopperThickness = base + (base >= 35 ? 35 : 18)
+      markAiAndBaseline('outerCopperThickness')
+    }
+  } else if (doneGiven && !baseGiven) {
+    const done = Number(form.outerCopperThickness)
+    if (Number.isFinite(done)) {
+      form.outerBaseCopperThickness = done >= 70 ? done - 35 : done < 56 ? done - 18 : done
+      markAiAndBaseline('outerBaseCopperThickness')
+    }
+  }
 }
 
 // 板材种类变化：已匹配板材型号时不可更改（混压板例外，可自由改）
@@ -694,7 +694,7 @@ watch(() => form.maxWarpage, (val) => {
 
 const computedDrillDensity = computed(() => {
   const v = form.clientPanelVertical
-  const h = form.holeCount
+  const h = form.throughHoleQty
   const w = form.setSizeWidth
   const sh = form.setSizeHeight
   if (v && h && w && sh && w > 0 && sh > 0) {
@@ -967,9 +967,17 @@ function handleSizeBlur() {
   const ratio = setArea / pcsArea
   if (pcsArea === setArea) { form.setMethod = '单片无拼板' }
   else if (ratio > 1 && ratio < 1.25) { form.setMethod = '单片加工艺边' }
-  else if (ratio >= 1.25 && ratio < 2.5) { form.setMethod = '客户拼板' }
+  else if (ratio >= 1.25) { form.setMethod = '客户拼板' }
   form.clientPanelHorizontal = 1
   form.clientPanelVertical = Math.floor(ratio / 1.25) + 1
+  // 尺寸联动计算带出的 拼板方式/拼板个数：来源标记 AI提参，并同步基准（不算用户改动）
+  fieldSource['setMethod'] = 'ai'
+  fieldSource['clientPanelHorizontal'] = 'ai'
+  fieldSource['clientPanelVertical'] = 'ai'
+  userBaseline['setMethod'] = JSON.parse(JSON.stringify(form.setMethod))
+  userBaseline['clientPanelHorizontal'] = JSON.parse(JSON.stringify(form.clientPanelHorizontal))
+  userBaseline['clientPanelVertical'] = JSON.parse(JSON.stringify(form.clientPanelVertical))
+  rebuildUserModified()
 }
 
 function requestPCSSize() {
@@ -1143,18 +1151,22 @@ function applyFieldData(data: Record<string, any>) {
   applyingData = true
   for(const k of Object.keys(data)) {
     if(!(k in form)) continue
-    const e=data[k]; const v=e?.value??e; const s=e?.source??''
+    const e=data[k]; const v = k === 'immersionGoldArea' ? (e?.ratio ?? e?.[k] ?? e) : (e?.value ?? e?.[k] ?? e); const s=e?.source??''
     if(boolF.includes(k)) form[k]=toBoolean(v)
     else if(numF.includes(k)) { const numeric=Number(v); form[k]=Number.isFinite(numeric)?numeric:0 }
     else if(arrF.includes(k)) form[k]=Array.isArray(v)?v:(v?[v]:[])
     else form[k]=v
     if(s) fieldSource[k]=s; fieldRawData[k]=e
   }
-  // 材料匹配规则：型号优先带出；无型号且提供类型未提供品牌 → 按类型补默认
-  applyMaterialPriorityRules(data)
+  // 材料匹配规则：返回了型号才按型号带出；无型号不做匹配
+  applyMaterialPriorityRules()
+  // 外层完成铜/基铜互补规则
+  applyCopperRules(data)
   applyingData = false
-  // 以本次同步后的值作为新基准：Qt/AI 回传的值不算用户改动
-  for (const k of Object.keys(data)) {
+  // 以本次同步后的值作为新基准：Qt/AI 回传的值（含型号匹配带出的材料项）不算用户改动
+  const baselineKeys = new Set(Object.keys(data))
+  ;['materialType','materialBrand','materialVersion','materialTg','halogenFree'].forEach(k => baselineKeys.add(k))
+  for (const k of baselineKeys) {
     if (k in form) userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
   }
   rebuildUserModified()
@@ -1180,7 +1192,7 @@ async function submitForm() {
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = form[k] })
-  params['drillDensity'] = computedDrillDensity.value
+  params['drillDenstity'] = computedDrillDensity.value
   if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
   if (impRows.value.length) params['impedanceTable'] = impRows.value
   try {
@@ -1206,7 +1218,7 @@ async function submitOrder() {
   for (const key of Object.keys(form)) { if (key === "remark") continue;
     params[key] = { value: form[key], source: 'user' }
   }
-  params['drillDensity'] = { value: computedDrillDensity.value, source: 'computed' }
+  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'computed' }
   if (stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
   if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
   const payload = params
@@ -1343,7 +1355,7 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
 function orderPayload() {
   const p: Record<string, any> = {}
   Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
-  p['drillDensity'] = computedDrillDensity.value
+  p['drillDenstity'] = computedDrillDensity.value
   if (stackupRows.value.length) p['stackupTable'] = stackupRows.value
   if (impRows.value.length) p['impedanceTable'] = impRows.value
   return p
@@ -1521,8 +1533,8 @@ async function handleQtMessage(event: Event) {
       qrOrderNo.value = orderNo
       qrVisible.value = true
       startPollPayStatus(payRes.data.merge_order_no, payRes.data.time_expire)
-    } catch (error) {
-      reportError('订单支付流程', error, '订单处理失败，请稍后重试')
+    } catch (error: any) {
+      reportError('订单支付流程', error, error?.message || '订单处理失败，请稍后重试')
     } finally {
       orderWorkflowPending = false
       finishOrderRequest()
@@ -1562,11 +1574,15 @@ async function loadQuoteParamsFromApi() {
           }
         }
       }
-      // 材料匹配规则：型号优先带出；无型号且提供类型未提供品牌 → 按类型补默认
-      applyMaterialPriorityRules(data)
+      // 材料匹配规则：返回了型号才按型号带出；无型号不做匹配
+      applyMaterialPriorityRules()
+      // 外层完成铜/基铜互补规则
+      applyCopperRules(data)
       applyingData = false
-      // 以本次 API 回填后的值作为新基准：服务端回填不算用户改动
-      for (const key of Object.keys(data)) {
+      // 以本次 API 回填后的值作为新基准：服务端回填（含型号匹配带出的材料项）不算用户改动
+      const baselineKeys = new Set(Object.keys(data))
+      ;['materialType','materialBrand','materialVersion','materialTg','halogenFree'].forEach(k => baselineKeys.add(k))
+      for (const key of baselineKeys) {
         if (key in form) userBaseline[key] = JSON.parse(JSON.stringify(form[key]))
       }
       rebuildUserModified()
@@ -1648,8 +1664,8 @@ onUnmounted(() => {
               <tr><td>内层最小线距<span class="req">*</span></td><td :class="fieldBgClass('minTraceSpacingInner')"><el-input-number :controls="false" v-model="form.minTraceSpacingInner" :min="0" :precision="2" size="small" style="width:100%" /><span class="unit">mil</span></td><td class="td-src"><span :class="sourceClass('minTraceSpacingInner')">{{ sourceLabel('minTraceSpacingInner') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minTraceSpacingInner')" class="btn-view graphic" @click="handleViewClick('minTraceSpacingInner')">图形</button><button v-if="showDocBtn('minTraceSpacingInner')" class="btn-view doc" @click="handleViewClick('minTraceSpacingInner')">加工文档</button></td></tr>
               </template>
             <tr><td>最小孔径<span class="req">*</span></td><td :class="fieldBgClass('minHoleSize')"><el-input-number :controls="false" v-model="form.minHoleSize" :min="0" :precision="3" size="small" style="width:100%" /><span class="unit">mm</span></td><td class="td-src"><span :class="sourceClass('minHoleSize')">{{ sourceLabel('minHoleSize') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('minHoleSize')" class="btn-view graphic" @click="handleViewClick('minHoleSize')">图形</button><button v-if="showDocBtn('minHoleSize')" class="btn-view doc" @click="handleViewClick('minHoleSize')">加工文档</button></td></tr>
-			            <tr><td>钻孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge empty"></span></td><td class="td-view"></td></tr>
-			            <tr><td>通孔孔数/PCS</td><td :class="fieldBgClass('holeCount')"><el-input-number :controls="false" v-model="form.holeCount" :min="0" :precision="0" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('holeCount')">{{ sourceLabel('holeCount') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCount')" class="btn-view graphic" @click="handleViewClick('holeCount')">图形</button><button v-if="showDocBtn('holeCount')" class="btn-view doc" @click="handleViewClick('holeCount')">加工文档</button></td></tr>
+			            <tr><td>钻孔密度</td><td><span style="display:inline-block;padding:4px 8px;">{{ computedDrillDensity || '--' }}</span><span class="unit">万孔/平米</span></td><td class="td-src"><span class="badge ai">AI提参</span></td><td class="td-view"></td></tr>
+			            <tr><td>通孔孔数/PCS</td><td :class="fieldBgClass('throughHoleQty')"><el-input-number :controls="false" v-model="form.throughHoleQty" :min="0" :precision="0" size="small" style="width:100%" /></td><td class="td-src"><span :class="sourceClass('throughHoleQty')">{{ sourceLabel('throughHoleQty') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('throughHoleQty')" class="btn-view graphic" @click="handleViewClick('throughHoleQty')">图形</button><button v-if="showDocBtn('throughHoleQty')" class="btn-view doc" @click="handleViewClick('throughHoleQty')">加工文档</button></td></tr>
             <tr><td>最小孔铜<span class="req">*</span></td><td :class="fieldBgClass('holeCopperThickness')"><el-autocomplete v-model="form.holeCopperThickness" :fetch-suggestions="queryHoleCopperThickness" size="small" style="width:100%" placeholder="输入或选择" clearable @select="(item: any) => { form.holeCopperThickness = item.value }"><template #default="{ item }"><div class="autocomplete-item">{{ item.value }} um</div></template></el-autocomplete><span class="unit">um</span></td><td class="td-src"><span :class="sourceClass('holeCopperThickness')">{{ sourceLabel('holeCopperThickness') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('holeCopperThickness')" class="btn-view graphic" @click="handleViewClick('holeCopperThickness')">图形</button><button v-if="showDocBtn('holeCopperThickness')" class="btn-view doc" @click="handleViewClick('holeCopperThickness')">加工文档</button></td></tr>
             <tr><td>阻焊颜色<span class="req">*</span></td><td :class="fieldBgClass('solderMaskColor')"><el-select v-model="form.solderMaskColor" size="small" style="width:100%"><el-option v-for="v in opts.solderMaskColor" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('solderMaskColor')">{{ sourceLabel('solderMaskColor') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('solderMaskColor')" class="btn-view graphic" @click="handleViewClick('solderMaskColor')">图形</button><button v-if="showDocBtn('solderMaskColor')" class="btn-view doc" @click="handleViewClick('solderMaskColor')">加工文档</button></td></tr>
             <tr><td>字符颜色<span class="req">*</span></td><td :class="fieldBgClass('silkscreenColor')"><el-select v-model="form.silkscreenColor" size="small" style="width:100%"><el-option v-for="v in opts.silkscreenColor" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><span :class="sourceClass('silkscreenColor')">{{ sourceLabel('silkscreenColor') }}</span></td><td class="td-view"><button v-if="showGraphicBtn('silkscreenColor')" class="btn-view graphic" @click="handleViewClick('silkscreenColor')">图形</button><button v-if="showDocBtn('silkscreenColor')" class="btn-view doc" @click="handleViewClick('silkscreenColor')">加工文档</button></td></tr>

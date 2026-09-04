@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { ElSelect, ElOption, ElTabs, ElTabPane, ElDialog, ElRadioGroup, ElRadio, ElInput, ElCheckbox, ElMessage, ElButton } from 'element-plus'
 import { addUserInvoiceInfo, userInvoiceInfoList, setUserInvoiceInfo, delUserInvoiceInfo, setDefaultInvoice } from '@/api/invoice'
+import { withErrorSource } from '@/utils/errorSource'
 
 interface InvoiceItem {
   invoice_id: number
@@ -38,7 +39,7 @@ async function setDefault(id: number) {
   try {
     const res: any = await setDefaultInvoice(props.token, id)
     if (res.code === '10000') { ElMessage.success(res.msg || '设置成功'); fetchList() }
-    else { ElMessage.error(res.msg || '设置失败') }
+    else { ElMessage.error(withErrorSource('电巢', res.msg, '设置失败')) }
   } catch { /* */ }
 }
 
@@ -46,7 +47,7 @@ async function delInvoice(id: number) {
   try {
     const res: any = await delUserInvoiceInfo(props.token, id)
     if (res.code === '10000') { ElMessage.success(res.msg || '删除成功'); fetchList() }
-    else { ElMessage.error(res.msg || '删除失败') }
+    else { ElMessage.error(withErrorSource('电巢', res.msg, '删除失败')) }
   } catch { /* */ }
 }
 
@@ -103,7 +104,7 @@ async function handleConfirm() {
       // 刷新列表
       await fetchList()
     } else {
-      ElMessage.error(res.msg || '新增失败')
+      ElMessage.error(withErrorSource('电巢', res.msg, '新增失败'))
     }
   } catch { /* 拦截器已处理 */ }
   finally { submitting.value = false }

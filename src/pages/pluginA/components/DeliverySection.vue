@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { ElInput, ElDialog, ElCheckbox, ElMessage, ElButton, ElCascader } from 'element-plus'
 import { userReceiptInfoList, addUserReceiptInfo, getAreaList, setUserReceiptInfo, setDefaultAddress, delUserReceiptInfo } from '@/api/invoice'
+import { withErrorSource } from '@/utils/errorSource'
 
 interface AddressItem {
   receipt_id: number
@@ -34,7 +35,7 @@ async function delAddress(id: number) {
   try {
     const res: any = await delUserReceiptInfo(props.token, id)
     if (res.code === '10000') { ElMessage.success(res.msg || '删除成功'); fetchList() }
-    else { ElMessage.error(res.msg || '删除失败') }
+    else { ElMessage.error(withErrorSource('电巢', res.msg, '删除失败')) }
   } catch { /* */ }
 }
 
@@ -42,7 +43,7 @@ async function setDefault(id: number) {
   try {
     const res: any = await setDefaultAddress(props.token, id)
     if (res.code === '10000') { ElMessage.success(res.msg || '设置成功'); fetchList() }
-    else { ElMessage.error(res.msg || '设置失败') }
+    else { ElMessage.error(withErrorSource('电巢', res.msg, '设置失败')) }
   } catch { /* */ }
 }
 
@@ -121,7 +122,7 @@ async function handleConfirm() {
       res = await addUserReceiptInfo(props.token, params)
     }
     if (res.code === '10000') { ElMessage.success(res.msg || (editingId.value ? '编辑成功' : '新增成功')); dialogVisible.value = false; fetchList() }
-    else { ElMessage.error(res.msg || '操作失败') }
+    else { ElMessage.error(withErrorSource('电巢', res.msg, '操作失败')) }
   } catch { /* */ }
   finally { submitting.value = false }
 }

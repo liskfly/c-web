@@ -1,5 +1,13 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 import { ElMessage, ElLoading } from 'element-plus'
+import { withErrorSource, type ErrorSource } from '@/utils/errorSource'
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    errorSource?: ErrorSource
+  }
+}
 
 let loadingRequestCount = 0
 let loadingInstance: any
@@ -56,11 +64,13 @@ service.interceptors.response.use(
   },
   (error) => {
     hideLoading()
+    const errorSource = (error.config as AxiosRequestConfig | undefined)?.errorSource
     if (error.response) {
       const message = error.response.data?.msg || error.response.data?.message || '请求失败'
-      ElMessage({ message, type: 'error', duration: 5000 })
+      ElMessage({ message: errorSource ? withErrorSource(errorSource, message) : message, type: 'error', duration: 5000 })
     } else if (error.request) {
-      ElMessage({ message: '网络连接失败', type: 'error', duration: 5000 })
+      const message = errorSource ? withErrorSource(errorSource, '网络连接失败') : '网络连接失败'
+      ElMessage({ message, type: 'error', duration: 5000 })
     }
     return Promise.reject(error)
   },

@@ -1,5 +1,7 @@
 import request from '@/request/request'
 
+export const PCB_PAY_ERROR_MESSAGE = '获取支付地址失败，请稍后重试!'
+
 // ==================== 发票 ====================
 
 /** 获取用户发票信息列表 */
@@ -121,6 +123,7 @@ export function delUserReceiptInfo(token: string, receipt_id: number) {
 export function pcbPayV2(token: string, data: { order_no: string }) {
   return request({
     errorSource: '电巢',
+    fixedErrorMessage: PCB_PAY_ERROR_MESSAGE,
     url: '/aishop/api/pay/pcbPayV2',
     method: 'post',
     data,

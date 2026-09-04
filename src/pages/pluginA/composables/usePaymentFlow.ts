@@ -65,7 +65,7 @@ export function usePaymentFlow(options: PaymentFlowOptions) {
         startPollPayStatus(mergeOrderNo, timeExpire)
       } catch (err: any) {
         if (isQrFlowActive(refreshSessionId, refreshOrderNo)) {
-          ElMessage.error(withErrorSource('电巢', err.message, '刷新失败'))
+          reportError('刷新支付二维码', err, err?.message || '刷新失败', '电巢')
         }
       }
     } catch (error) {

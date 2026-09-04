@@ -1,11 +1,12 @@
 import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { ElMessage, ElLoading } from 'element-plus'
-import { withErrorSource, type ErrorSource } from '@/utils/errorSource'
+import { markErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
     errorSource?: ErrorSource
+    fixedErrorMessage?: string
   }
 }
 
@@ -64,13 +65,18 @@ service.interceptors.response.use(
   },
   (error) => {
     hideLoading()
-    const errorSource = (error.config as AxiosRequestConfig | undefined)?.errorSource
+    const requestConfig = error.config as AxiosRequestConfig | undefined
+    const errorSource = requestConfig?.errorSource
+    const fixedErrorMessage = requestConfig?.fixedErrorMessage
     if (error.response) {
-      const message = error.response.data?.msg || error.response.data?.message || '请求失败'
+      const message = fixedErrorMessage || error.response.data?.msg || error.response.data?.message || error.message || '请求失败'
       ElMessage({ message: errorSource ? withErrorSource(errorSource, message) : message, type: 'error', duration: 5000 })
+      markErrorMessageShown(error)
     } else if (error.request) {
-      const message = errorSource ? withErrorSource(errorSource, '网络连接失败') : '网络连接失败'
+      const requestMessage = fixedErrorMessage || '网络连接失败'
+      const message = errorSource ? withErrorSource(errorSource, requestMessage) : requestMessage
       ElMessage({ message, type: 'error', duration: 5000 })
+      markErrorMessageShown(error)
     }
     return Promise.reject(error)
   },

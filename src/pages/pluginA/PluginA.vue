@@ -8,7 +8,7 @@ import ImpedanceSection from './components/ImpedanceSection.vue'
 import QuoteSummary from './components/QuoteSummary.vue'
 import PaymentDialog from './components/PaymentDialog.vue'
 import { orderCreate, unpaidAuditCallback } from '@/api/pcb'
-import { pcbPayV2 } from '@/api/invoice'
+import { PCB_PAY_ERROR_MESSAGE, pcbPayV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { materialRules, ppMap, versionDetailMap } from './config/materials'
 import { defaultValues, fieldLabels, formOptions, initialForm } from './config/form'
@@ -19,7 +19,7 @@ import { useAutocompleteOptions } from './composables/useAutocompleteOptions'
 import { usePanelSize } from './composables/usePanelSize'
 import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { withErrorSource, type ErrorSource } from '@/utils/errorSource'
+import { wasErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true, invoice: true, delivery: true })
@@ -383,7 +383,7 @@ function finishOrderRequest() {
 
 function reportError(context: string, error: unknown, message: string, source: ErrorSource = '系统') {
   console.error(`[${context}]`, error)
-  if (componentActive) ElMessage.error(withErrorSource(source, message))
+  if (componentActive && !wasErrorMessageShown(error)) ElMessage.error(withErrorSource(source, message))
 }
 
 function toBoolean(value: unknown): boolean {
@@ -528,10 +528,12 @@ async function generatePayQr(orderNo: string) {
   try {
     payRes = await pcbPayV2(userToken.value, { order_no: orderNo })
   } catch (error: any) {
-    throw new Error(withErrorSource('电巢', error?.message, '支付接口失败'))
+    // HTTP / 网络错误若已由请求层展示固定提示，则原样上抛，页面不再重复提示。
+    if (wasErrorMessageShown(error)) throw error
+    throw new Error(withErrorSource('电巢', PCB_PAY_ERROR_MESSAGE))
   }
   if (String(payRes.code) !== '10000' || !payRes.data?.order_str) {
-    throw new Error(withErrorSource('电巢', payRes.msg, '支付接口失败'))
+    throw new Error(withErrorSource('电巢', PCB_PAY_ERROR_MESSAGE))
   }
   let qrUrl: string
   try {
@@ -562,7 +564,7 @@ function submitOrder() {
       ordering.value = false
     }).catch(err => {
       ordering.value = false
-      ElMessage.error(withErrorSource('电巢', err.message, '支付接口失败'))
+      reportError('重新生成支付二维码', err, err?.message || '支付接口失败', '电巢')
     })
     return
   }

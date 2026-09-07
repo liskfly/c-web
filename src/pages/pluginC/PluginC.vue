@@ -59,14 +59,20 @@ function hasDefault(f: string): boolean {
   return true
 }
 
+function hasFieldValue(field: string): boolean {
+  const value = form[field]
+  if (value === undefined || value === null || value === '') return false
+  return !Array.isArray(value) || value.length > 0
+}
+
 function fieldBgClass(f: string): string {
   // 背景色只由来源决定（有来源优先显示来源色，即使该字段有默认值）；用户改动不改变背景，只让字体变蓝
   let cls = ''
   const src = fieldSource[f]
   if (src === 'ai') cls = 'bg-green'
   else if (src === 'cam') cls = 'bg-orange'
-  // 来源为服务端默认值：不改变背景色
-  else if (src === 'server default') cls = ''
+  // 服务端默认、系统默认均使用白色背景
+  else if (src === 'server default' || src === 'system default') cls = ''
   else if (!hasDefault(f)) {
     // 板材品牌/板材型号：无来源时默认浅灰（可选项，非必填）
     cls = (f === 'materialBrand' || f === 'materialVersion') ? 'bg-light-gray' : 'bg-light-red'
@@ -1122,22 +1128,29 @@ const labelMap: Record<string, string> = {
 const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
 const rawEventData = ref<any>(null)
+const systemDefaultFields = new Set(['pcbFile', 'quantity'])
 
 function sourceLabel(f: string): string {
+  if (!hasFieldValue(f)) return ''
   // 用户修改过 → 用户确认；否则按来源显示
   if (userModifiedFields.value.has(f)) return '用户确认'
   const s = fieldSource[f]
   if (s==='ai') return 'AI提参'
   if (s==='cam') return 'CAM提参'
+  if (s === 'user') return '用户确认'
+  if (s === 'system default') return '系统默认'
+  if (systemDefaultFields.has(f)) return '系统默认'
   // 服务端默认 / 有默认值但未传来源 → 默认行业标准；无默认值无来源 → 空白
   if (s==='server default' || hasDefault(f)) return '默认行业标准'
   return ''
 }
 function sourceClass(f: string): string {
+  if (!hasFieldValue(f)) return 'badge empty'
   if (userModifiedFields.value.has(f)) return 'badge user'
   const s = fieldSource[f]
   if (s==='ai') return 'badge ai'
   if (s==='cam') return 'badge extracted'
+  if (s === 'user') return 'badge user'
   return 'badge empty'
 }
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
@@ -1558,14 +1571,18 @@ async function loadQuoteParamsFromApi() {
       const data = res.data
       applyingData = true
       for (const key of Object.keys(form)) {
-        // API 返回字段名与表单 key 一致，直接用
+        // 同时兼容旧的纯值和 A 页面上传的 { value, source } 结构。
         if (!(key in data)) continue
-        const v = data[key]
+        const entry = data[key]
+        const v = key === 'immersionGoldArea'
+          ? (entry?.ratio ?? entry?.value ?? entry?.[key] ?? entry)
+          : (entry?.value ?? entry?.[key] ?? entry)
+        const source = entry?.source ?? ''
         if (v !== null && v !== undefined) {
           if (Array.isArray(form[key])) {
             form[key] = Array.isArray(v) ? v : (v ? [v] : [])
           } else if (typeof form[key] === 'boolean') {
-            form[key] = Boolean(v)
+            form[key] = toBoolean(v)
           } else if (typeof form[key] === 'number') {
             const n = Number(v)
             form[key] = Number.isFinite(n) ? n : form[key]
@@ -1573,6 +1590,8 @@ async function loadQuoteParamsFromApi() {
             form[key] = v
           }
         }
+        if (source) fieldSource[key] = source
+        fieldRawData[key] = entry
       }
       // 材料匹配规则：返回了型号才按型号带出；无型号不做匹配
       applyMaterialPriorityRules()

@@ -40,14 +40,20 @@ function hasDefault(f: string): boolean {
   return true
 }
 
+function hasFieldValue(field: string): boolean {
+  const value = form[field]
+  if (value === undefined || value === null || value === '') return false
+  return !Array.isArray(value) || value.length > 0
+}
+
 function fieldBgClass(f: string): string {
   // 背景色只由来源决定（有来源优先显示来源色，即使该字段有默认值）；用户改动不改变背景，只让字体变蓝
   let cls = ''
   const src = fieldSource[f]
   if (src === 'ai') cls = 'bg-green'
   else if (src === 'cam') cls = 'bg-orange'
-  // 来源为服务端默认值：不改变背景色
-  else if (src === 'server default') cls = ''
+  // 服务端默认、系统默认均使用白色背景
+  else if (src === 'server default' || src === 'system default') cls = ''
   else if (!hasDefault(f)) {
     // 板材品牌/板材型号：无来源时默认浅灰（可选项，非必填）
     cls = (f === 'materialBrand' || f === 'materialVersion') ? 'bg-light-gray' : 'bg-light-red'
@@ -418,24 +424,43 @@ const { handleSizeBlur } = usePanelSize({
 const rawEventData = ref<any>(null)
 const systemDefaultFields = new Set(['pcbFile', 'quantity'])
 
+type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | ''
+
+/** 提交来源与页面“来源”列保持一致，供 Qt 保存后在 C 页面还原。 */
+function submittedFieldSource(field: string): SubmittedFieldSource {
+  if (!hasFieldValue(field)) return ''
+  if (userModifiedFields.value.has(field)) return 'user'
+
+  const source = fieldSource[field]
+  if (source === 'ai' || source === 'cam') return source
+  if (source === 'user') return 'user'
+  if (source === 'system default') return 'system default'
+  if (systemDefaultFields.has(field)) return 'system default'
+  if (source === 'server default' || hasDefault(field)) return 'server default'
+  return 'user'
+}
+
 function sourceLabel(f: string): string {
+  if (!hasFieldValue(f)) return ''
   // 用户修改过 → 用户确认；否则按来源显示
   if (userModifiedFields.value.has(f)) return '用户确认'
   const s = fieldSource[f]
   if (s==='ai') return 'AI提参'
   if (s==='cam') return 'CAM提参'
+  if (s === 'user') return '用户确认'
   if (s === 'system default') return '系统默认'
   // PCB资料、板子数量由系统提供默认值；其余字段沿用默认行业标准。
-  if (s==='server default' || hasDefault(f)) {
-    return systemDefaultFields.has(f) ? '系统默认' : '默认行业标准'
-  }
+  if (systemDefaultFields.has(f)) return '系统默认'
+  if (s==='server default' || hasDefault(f)) return '默认行业标准'
   return ''
 }
 function sourceClass(f: string): string {
+  if (!hasFieldValue(f)) return 'badge empty'
   if (userModifiedFields.value.has(f)) return 'badge user'
   const s = fieldSource[f]
   if (s==='ai') return 'badge ai'
   if (s==='cam') return 'badge extracted'
+  if (s === 'user') return 'badge user'
   return 'badge empty'
 }
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
@@ -573,11 +598,11 @@ function submitOrder() {
   const params: Record<string, any> = {}
   for (const key of Object.keys(form)) { if (key === "remark") continue;
     const raw = fieldRawData[key]
-    const src = fieldSource[key] || 'user'
+    const src = submittedFieldSource(key)
     const val = key === 'dimensionTolerance' ? formatDimensionTolerance() : form[key]
     params[key] = { ...(raw || {}), value: val, source: src }
   }
-  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'computed' }
+  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'ai' }
   // if (stackupRows.value.length) params['stackupList'] = { value: stackupRows.value, source: 'user' }
   // if (impRows.value.length) params['impList'] = { value: impRows.value, source: 'user' }
   const payload = params

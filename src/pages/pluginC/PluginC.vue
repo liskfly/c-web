@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { reactive, ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
@@ -1227,6 +1227,11 @@ async function submitOrder() {
   if (ordering.value || orderCompleted.value) return
   if (!validateForm()) return
   ordering.value = true
+
+  // 先刷新按钮禁用状态并让出主线程，再执行参数组装和 Qt 调用。
+  await nextTick()
+  await new Promise<void>(resolve => window.setTimeout(resolve, 0))
+
   const params: Record<string, any> = {}
   for (const key of Object.keys(form)) { if (key === "remark") continue;
     params[key] = { value: form[key], source: 'user' }
@@ -1236,7 +1241,7 @@ async function submitOrder() {
   if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
   const payload = params
   const win = window as any
-  console.log('[我→QT] 订单请求:', JSON.stringify(payload, null, 2))
+  console.log('[我→QT] 订单请求', { fieldCount: Object.keys(payload).length })
   try {
     if (!win.QtBridge?.send) throw new Error('QtBridge.send 不可用')
     win.QtBridge.send('html-button-message', payload)

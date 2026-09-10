@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, onMounted, onUnmounted, watch } from 'vue'
 import InvoiceSection from './components/InvoiceSection.vue'
 import DeliverySection from './components/DeliverySection.vue'
 import ParameterForm from './components/ParameterForm.vue'
@@ -17,7 +17,6 @@ import { useBoardStructure } from './composables/useBoardStructure'
 import { usePaymentFlow } from './composables/usePaymentFlow'
 import { useAutocompleteOptions } from './composables/useAutocompleteOptions'
 import { usePanelSize } from './composables/usePanelSize'
-import { useFieldSources } from './composables/useFieldSources'
 import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { wasErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
@@ -30,6 +29,66 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
+
+const userModifiedFields = ref<Set<string>>(new Set())
+let applyingData = false
+
+function hasDefault(f: string): boolean {
+  const v = DEFAULT_VALUES[f]
+  if (v === undefined || v === null || v === '') return false
+  if (Array.isArray(v) && v.length === 0) return false
+  return true
+}
+
+function hasFieldValue(field: string): boolean {
+  const value = form[field]
+  if (value === undefined || value === null || value === '') return false
+  return !Array.isArray(value) || value.length > 0
+}
+
+function fieldBgClass(f: string): string {
+  // 背景色只由来源决定（有来源优先显示来源色，即使该字段有默认值）；用户改动不改变背景，只让字体变蓝
+  let cls = ''
+  const src = fieldSource[f]
+  if (src === 'ai') cls = 'bg-green'
+  else if (src === 'cam') cls = 'bg-orange'
+  // 服务端默认、系统默认均使用白色背景
+  else if (src === 'server default' || src === 'system default') cls = ''
+  else if (!hasDefault(f)) {
+    // 板材品牌/板材型号：无来源时默认浅灰（可选项，非必填）
+    cls = (f === 'materialBrand' || f === 'materialVersion') ? 'bg-light-gray' : 'bg-light-red'
+  }
+  if (userModifiedFields.value.has(f)) cls = cls ? `${cls} font-blue` : 'font-blue'
+  return cls
+}
+
+// 用户手动修改标记：与“最近一次 Qt 同步后的值”对比（初始为默认值），
+// Qt/AI 回传的不同值不算用户改动；flush: 'sync' 让 applyingData 保护在同步期间真正生效
+let userBaseline: Record<string, any> = JSON.parse(JSON.stringify(DEFAULT_VALUES))
+// 类型不敏感对比：组件回写导致的 字符串/数字 转换不算改动（如 el-input-number 把 "0.0" 归一化为 0）
+function isSameValue(a: any, b: any): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b)
+  // 一方是数字时按数值比较（容忍 "0.0" vs 0、"20" vs 20）；空值/布尔不参与数值比较
+  if ((typeof a === 'number' || typeof b === 'number') &&
+    typeof a !== 'boolean' && typeof b !== 'boolean' &&
+    a !== null && b !== null && a !== undefined && b !== undefined && a !== '' && b !== '') {
+    const na = Number(a)
+    const nb = Number(b)
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb
+  }
+  return String(a) === String(b)
+}
+function rebuildUserModified() {
+  const next = new Set<string>()
+  for (const k of Object.keys(form)) {
+    if (!isSameValue(form[k], userBaseline[k])) next.add(k)
+  }
+  userModifiedFields.value = next
+}
+watch(form, () => {
+  if (applyingData) return
+  rebuildUserModified()
+}, { deep: true, flush: 'sync' })
 
 // ==================== 选项 ====================
 const opts = JSON.parse(JSON.stringify(formOptions)) as Record<string, any[]>
@@ -353,48 +412,8 @@ function formatMoney(value: unknown): string {
 const labelMap = fieldLabels
 
 // ==================== 数据来源追踪 ====================
-const rawEventData = ref<any>(null)
-const systemDefaultFields = new Set(['pcbFile', 'quantity'])
-
-function coerceFieldValue(field: string, value: unknown): any {
-  const boolFields = ['blindVia','acceptXOut','materialTg','halogenFree','impedanceControl','confirmProductionFile']
-  const numberFields = ['boardThickness','outerCopperThickness','outerBaseCopperThickness','innerCopperThickness','holeCopperThickness','enigGoldThickness','goldFingerThickness']
-  const arrayFields = ['markingRequirements','testRequirements','shippingReports','specialProcesses']
-  if (boolFields.includes(field)) return toBoolean(value)
-  if (field === 'dimensionTolerance') {
-    if (typeof value === 'number') return value
-    const match = String(value ?? '').match(/[0-9]*\.?[0-9]+/)
-    return match ? Number(match[0]) : null
-  }
-  if (numberFields.includes(field)) {
-    const numeric = Number(value)
-    return Number.isFinite(numeric) ? numeric : null
-  }
-  if (arrayFields.includes(field)) return Array.isArray(value) ? value : (value ? [value] : [])
-  return value
-}
-
-const {
-  fieldSource,
-  fieldRawData,
-  userModifiedFields,
-  userBaseline,
-  hasDefault,
-  hasFieldValue,
-  rebuildUserModified,
-  fieldBgClass,
-  sourceLabel,
-  sourceClass,
-  sourceOptions,
-  selectSource,
-  applyFieldData: applyFieldSourceData,
-} = useFieldSources({
-  form,
-  initialValues: initialForm,
-  defaultValues: DEFAULT_VALUES,
-  systemDefaultFields,
-  coerceValue: coerceFieldValue,
-})
+const fieldSource = reactive<Record<string, string>>({})
+const fieldRawData = reactive<Record<string, any>>({})
 
 const { handleSizeBlur } = usePanelSize({
   form,
@@ -402,6 +421,8 @@ const { handleSizeBlur } = usePanelSize({
   userBaseline,
   rebuildUserModified,
 })
+const rawEventData = ref<any>(null)
+const systemDefaultFields = new Set(['pcbFile', 'quantity'])
 
 type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | ''
 
@@ -419,19 +440,64 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
   return 'user'
 }
 
+function sourceLabel(f: string): string {
+  if (!hasFieldValue(f)) return ''
+  // 用户修改过 → 用户确认；否则按来源显示
+  if (userModifiedFields.value.has(f)) return '用户确认'
+  const s = fieldSource[f]
+  if (s==='ai') return 'AI提参'
+  if (s==='cam') return 'CAM提参'
+  if (s === 'user') return '用户确认'
+  if (s === 'system default') return '系统默认'
+  // PCB资料、板子数量由系统提供默认值；其余字段沿用默认行业标准。
+  if (systemDefaultFields.has(f)) return '系统默认'
+  if (s==='server default' || hasDefault(f)) return '默认行业标准'
+  return ''
+}
+function sourceClass(f: string): string {
+  if (!hasFieldValue(f)) return 'badge empty'
+  if (userModifiedFields.value.has(f)) return 'badge user'
+  const s = fieldSource[f]
+  if (s==='ai') return 'badge ai'
+  if (s==='cam') return 'badge extracted'
+  if (s === 'user') return 'badge user'
+  return 'badge empty'
+}
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
-async function applyFieldData(data: Record<string, any>) {
-  await applyFieldSourceData(data, (usesCandidateArrays) => {
-    // 新数组协议严格按候选条数展示；旧协议继续保留原来的材料和铜厚补全规则。
-    if (!usesCandidateArrays) {
-      applyMaterialPriorityRules()
-      applyCopperRules(data)
+function applyFieldData(data: Record<string, any>) {
+  const boolF=['blindVia','acceptXOut','materialTg','halogenFree','impedanceControl','confirmProductionFile']
+  const numF=['boardThickness','outerCopperThickness','outerBaseCopperThickness','innerCopperThickness','holeCopperThickness','enigGoldThickness','goldFingerThickness']
+  const arrF=['markingRequirements','testRequirements','shippingReports','specialProcesses']
+  applyingData = true
+  for(const k of Object.keys(data)) {
+    if(!(k in form)) continue
+    const e=data[k]; const v = k === 'immersionGoldArea' ? (e?.ratio ?? e?.[k] ?? e) : (e?.value ?? e?.[k] ?? e); const s=e?.source??''
+    if(boolF.includes(k)) form[k]=toBoolean(v)
+    else if(k==='dimensionTolerance') {
+      // 兼容旧格式 "+/-0.10mm" → 数值
+      if (typeof v === 'number') form[k] = v
+      else { const m = String(v ?? '').match(/[0-9]*\.?[0-9]+/); form[k] = m ? Number(m[0]) : null }
     }
-    syncPrevMaterial()
-  })
+    else if(numF.includes(k)) { const numeric=Number(v); form[k]=Number.isFinite(numeric)?numeric:0 }
+    else if(arrF.includes(k)) form[k]=Array.isArray(v)?v:(v?[v]:[])
+    else form[k]=v
+    if(s) fieldSource[k]=s; fieldRawData[k]=e
+  }
+  // 材料匹配规则：返回了型号才按型号带出；无型号不做匹配
+  applyMaterialPriorityRules()
+  // 外层完成铜/基铜互补规则
+  applyCopperRules(data)
+  applyingData = false
+  // 以本次同步后的值作为新基准：Qt/AI 回传的值（含型号匹配带出的材料项）不算用户改动
+  const baselineKeys = new Set(Object.keys(data))
+  ;['materialType','materialBrand','materialVersion','materialTg','halogenFree'].forEach(k => baselineKeys.add(k))
+  for (const k of baselineKeys) {
+    if (k in form) userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
+  }
+  rebuildUserModified()
 }
 
 // 外形公差提交格式：数字 → "+/-X.XXmm"
@@ -725,7 +791,7 @@ async function handleQtMessage(event: Event) {
 
   // 表单数据
   const data = detail.parameters || detail
-  await applyFieldData(data)
+  applyFieldData(data)
   handleSizeBlur()
   formDataLoaded.value = true
   ElMessage.success('数据已同步')
@@ -743,8 +809,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, fieldBgClass, sourceClass, sourceLabel, sourceOptions, selectSource,
-  showGraphicBtn, showDocBtn, handleViewClick,
+  form, sections, opts, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,

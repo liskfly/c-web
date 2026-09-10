@@ -424,11 +424,14 @@ function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.s
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
 async function applyFieldData(data: Record<string, any>) {
-  await applyFieldSourceData(data, (usesCandidateArrays) => {
+  // 备注仅由页面规则生成，不接收 Qt/后端候选数据，也不参与来源冲突处理。
+  const sourceData = { ...data }
+  delete sourceData.remark
+  await applyFieldSourceData(sourceData, (usesCandidateArrays) => {
     // 新数组协议严格按候选条数展示；旧协议继续保留原来的材料和铜厚补全规则。
     if (!usesCandidateArrays) {
       applyMaterialPriorityRules()
-      applyCopperRules(data)
+      applyCopperRules(sourceData)
     }
     syncPrevMaterial()
   })

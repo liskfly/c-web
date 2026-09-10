@@ -94,5 +94,6 @@
 .plugin-a-page .el-textarea__inner { font-size: 16px; }
 
 /* 来源下拉挂载在 body 下，因此使用独立 popper class 限定样式。 */
-.plugin-a-source-dropdown .el-dropdown-menu__item { min-width: 140px; }
+.plugin-a-source-dropdown .el-dropdown-menu__item { min-width: 140px; display: flex; gap: 16px; justify-content: space-between; }
 .plugin-a-source-dropdown .source-option-label { flex: 0 0 auto; font-weight: 600; color: #333; }
+.plugin-a-source-dropdown .source-option-value { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; }

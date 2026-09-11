@@ -16,3 +16,24 @@
 2. 包含监听器、计时器或接口流程的逻辑放入 `composables/`，并在卸载时清理资源。
 3. 独立业务区块放入 `components/`；参数表字段按所属分区维护。
 4. Qt 消息仍由页面统一接收，业务数据分别交给材料、校验、订单和支付模块处理。
+
+## 打包后切换冲突模式
+
+构建产物根目录中的 `plugin-config.js` 是独立运行时配置，不会合并进压缩后的业务脚本：
+
+```js
+window.__AUTOLIB_RUNTIME_CONFIG__ = {
+  pluginAConflictMode: true,
+  pluginARemarkVisible: true,
+  pluginCRemarkVisible: true,
+}
+```
+
+- `true`：使用候选数组协议，开启多来源冲突判断、粉色冲突背景和来源候选下拉。
+- `false`：使用单对象协议，关闭冲突提示和来源下拉，不从候选数组中默认选择数据。
+
+`pluginARemarkVisible` 控制 A 页面备注栏：`true` 显示，`false` 隐藏。隐藏只影响页面展示，不影响 P10 校验、审核状态和提交参数。
+
+`pluginCRemarkVisible` 独立控制 C 页面备注栏：`true` 显示，`false` 隐藏。
+
+修改配置后刷新或重新打开页面即可生效，无需重新打包。配置文件缺失或配置值无效时默认开启冲突模式。

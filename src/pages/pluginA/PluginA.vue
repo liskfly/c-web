@@ -19,6 +19,7 @@ import { useAutocompleteOptions } from './composables/useAutocompleteOptions'
 import { usePanelSize } from './composables/usePanelSize'
 import { useFieldSources } from './composables/useFieldSources'
 import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
+import { runtimeConfig } from '@/config/runtimeConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { wasErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
 
@@ -30,6 +31,8 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
+const conflictMode = runtimeConfig.pluginAConflictMode
+const remarkVisible = runtimeConfig.pluginARemarkVisible
 
 // ==================== 选项 ====================
 const opts = JSON.parse(JSON.stringify(formOptions)) as Record<string, any[]>
@@ -393,6 +396,7 @@ const {
   initialValues: initialForm,
   defaultValues: DEFAULT_VALUES,
   systemDefaultFields,
+  conflictMode,
   coerceValue: coerceFieldValue,
 })
 
@@ -690,12 +694,12 @@ async function handleQtMessage(event: Event) {
       // 超P10：转人工审核，成功后禁止再次提交；失败则停止，可重新点击按钮重试
       if (auditReasons.length) {
         try {
-          const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
-          if (Number(auditRes.code) === 200) {
-            ElMessage.success('未付款转人工审核成功,已通知前端')
-            orderCompleted.value = true
-            return
-          }
+          // const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
+          // if (Number(auditRes.code) === 200) {
+          //   ElMessage.success('未付款转人工审核成功,已通知前端')
+          //   orderCompleted.value = true
+          //   return
+          // }
           ElMessage.error(withErrorSource('asem', auditRes.message, '转人工审核失败，请重新点击提交重试'))
           return
         } catch (error) {
@@ -746,7 +750,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, fieldBgClass, sourceClass, sourceLabel, sourceOptions, selectSource,
+  form, sections, opts, conflictMode, remarkVisible, fieldBgClass, sourceClass, sourceLabel, sourceOptions, selectSource,
   showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,

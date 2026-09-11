@@ -13,11 +13,12 @@ interface FieldSourceOptions {
   initialValues: Record<string, any>
   defaultValues: Record<string, any>
   systemDefaultFields: Set<string>
+  conflictMode: boolean
   coerceValue: (field: string, value: unknown) => any
 }
 
 export function useFieldSources(options: FieldSourceOptions) {
-  const { form, initialValues, defaultValues, systemDefaultFields, coerceValue } = options
+  const { form, initialValues, defaultValues, systemDefaultFields, conflictMode, coerceValue } = options
   const fieldSource = reactive<Record<string, FieldSourceCode>>({})
   const fieldRawData = reactive<Record<string, any>>({})
   const remoteOptions = reactive<Record<string, FieldSourceOption[]>>({})
@@ -178,6 +179,9 @@ export function useFieldSources(options: FieldSourceOptions) {
       userModifiedFields.value = new Set()
 
       for (const field of Object.keys(form)) {
+        // 备注由页面规则维护。重复同步相同参数时，字段最终值没有变化，
+        // Vue 不会再次触发对应 watcher；此处若清空备注会导致超 P10 提示丢失。
+        if (field === 'remark') continue
         form[field] = cloneFieldValue(initialValues[field])
         if (hasDefault(field)) fieldSource[field] = defaultSource(field)
       }
@@ -192,7 +196,7 @@ export function useFieldSources(options: FieldSourceOptions) {
           form[field] = cloneFieldValue(candidate.value)
           fieldSource[field] = candidate.source
           fieldRawData[field] = candidate.raw
-        } else if (candidates.length > 1) {
+        } else if (conflictMode && candidates.length > 1) {
           form[field] = clearValue(field)
           fieldSource[field] = 'conflict'
         }

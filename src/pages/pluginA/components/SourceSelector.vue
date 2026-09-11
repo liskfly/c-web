@@ -20,8 +20,12 @@ function formatValue(value: unknown): string {
 </script>
 
 <template>
+  <span
+    v-if="label && !context.conflictMode"
+    :class="context.sourceClass(field)"
+  >{{ label }}</span>
   <el-dropdown
-    v-if="label"
+    v-else-if="label"
     trigger="click"
     placement="bottom"
     popper-class="plugin-a-source-dropdown"

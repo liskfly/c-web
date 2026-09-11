@@ -28,6 +28,7 @@ import { usePanelSize } from './composables/usePanelSize'
 import { useMaterialSelection } from './composables/useMaterialSelection'
 import { resolveDeeplineToken } from './domain/deepline'
 import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
+import { runtimeConfig } from '@/config/runtimeConfig'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -37,6 +38,7 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
+const remarkVisible = runtimeConfig.pluginCRemarkVisible
 
 const userModifiedFields = ref<Set<string>>(new Set())
 let applyingData = false
@@ -913,7 +915,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
+  form, sections, opts, remarkVisible, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,

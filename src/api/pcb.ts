@@ -1,7 +1,6 @@
 import request from '@/request/request'
 
-/** 创建订单 */
-export function orderCreate(token: string, data: {
+interface OrderCreatePayload {
   task_id: string
   receiver_id: number
   invoice_id: number
@@ -10,10 +9,24 @@ export function orderCreate(token: string, data: {
   task_audit_status?: number
   audit_control_reasons?: string
   pcbQuoteParams: Record<string, any>
-}) {
+}
+
+/** 创建订单 */
+export function orderCreate(token: string, data: OrderCreatePayload) {
   return request({
     errorSource: 'asem',
     url: '/proxy/asem/elecnest/OrderCreate',
+    method: 'post',
+    data,
+    headers: { Authorization: token },
+  })
+}
+
+/** 创建 PCB 模型（DeepLine 流程） */
+export function pcbModelIdCreate(token: string, data: OrderCreatePayload) {
+  return request({
+    errorSource: 'asem',
+    url: '/proxy/asem/elecnest/PCBModelIDCreate',
     method: 'post',
     data,
     headers: { Authorization: token },
@@ -80,6 +93,16 @@ export function getQuoteInfoOffline(data: { taskId: string; pcbQuoteParams: Reco
   return request({
     errorSource: 'asem',
     url: '/proxy/asem/pcb/getQuoteInfoOffline',
+    method: 'post',
+    data,
+  })
+}
+
+/** 获取报价信息（DeepLine 纯离线流程） */
+export function getQuoteInfoOfflinePure(data: { taskId: string; pcbQuoteParams: Record<string, any> }) {
+  return request({
+    errorSource: 'asem',
+    url: '/proxy/asem/pcb/getQuoteInfoOfflinePure',
     method: 'post',
     data,
   })

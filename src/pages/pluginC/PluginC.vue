@@ -5,7 +5,17 @@ import StackupSection from './components/StackupSection.vue'
 import ImpedanceSection from './components/ImpedanceSection.vue'
 import QuoteSummary from './components/QuoteSummary.vue'
 import PaymentDialog from './components/PaymentDialog.vue'
-import { orderCreate, payCallback, updateOrderStatus, getOnlineQuoteParamsInfo, getQuoteInfoOffline, getOrderPriceQuery, submitTransferNotify } from '@/api/pcb'
+import {
+  getOnlineQuoteParamsInfo,
+  getOrderPriceQuery,
+  getQuoteInfoOffline,
+  getQuoteInfoOfflinePure,
+  orderCreate,
+  payCallback,
+  pcbModelIdCreate,
+  submitTransferNotify,
+  updateOrderStatus,
+} from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { ElMessage } from 'element-plus'
@@ -16,6 +26,8 @@ import { useAutocompleteOptions } from './composables/useAutocompleteOptions'
 import { useBoardStructure } from './composables/useBoardStructure'
 import { usePanelSize } from './composables/usePanelSize'
 import { useMaterialSelection } from './composables/useMaterialSelection'
+import { resolveDeeplineToken } from './domain/deepline'
+import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -175,6 +187,7 @@ const quoteData = ref<any>(null)
 const oldQuoteData = ref<any>(null)
 const formDataLoaded = ref(false)
 const tokenReady = ref(false)
+const deeplineMode = ref(false)
 
 // Qt 桥接请求的等待状态：避免接口尚未返回时重复点击。
 const BRIDGE_RESPONSE_TIMEOUT_MS = 30_000
@@ -264,6 +277,21 @@ const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
 const rawEventData = ref<any>(null)
 const systemDefaultFields = new Set(['pcbFile', 'quantity'])
+
+type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | ''
+
+/** Qt 审核参数中的来源与页面来源列保持一致。 */
+function submittedFieldSource(field: string): SubmittedFieldSource {
+  if (!hasFieldValue(field)) return ''
+  if (userModifiedFields.value.has(field)) return 'user'
+  const source = fieldSource[field]
+  if (source === 'ai' || source === 'cam') return source
+  if (source === 'user') return 'user'
+  if (source === 'system default') return 'system default'
+  if (systemDefaultFields.has(field)) return 'system default'
+  if (source === 'server default' || hasDefault(field)) return 'server default'
+  return 'user'
+}
 
 const { handleSizeBlur, requestPCSSize, requestSetSize } = usePanelSize({
   form,
@@ -355,6 +383,10 @@ function validateForm(): boolean {
   if ((form.markingRequirements as string[]).includes('周期标记')) alwaysRequired.push('periodFormat')
   const m = alwaysRequired.filter(k => { const v = form[k]; return v === '' || v === null || v === undefined || (Array.isArray(v) && v.length === 0) })
   if (m.length) { ElMessage.warning('请填写: ' + m.map(k => labelMap[k] || k).join('、')); return false }
+  if (!isThicknessToleranceFormatValid(form.thicknessTolerance)) {
+    ElMessage.warning('板厚公差需要修改成标准格式，例如：+/-10mm 或 +/-10%')
+    return false
+  }
   return true
 }
 
@@ -369,7 +401,8 @@ async function submitForm() {
   if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
   if (impRows.value.length) params['impedanceTable'] = impRows.value
   try {
-    const res: any = await getQuoteInfoOffline({ taskId: taskId.value, pcbQuoteParams: params })
+    const quoteRequest = deeplineMode.value ? getQuoteInfoOfflinePure : getQuoteInfoOffline
+    const res: any = await quoteRequest({ taskId: taskId.value, pcbQuoteParams: params })
     if (res.code === 200) {
       quoteData.value = res.data
       ElMessage.success('报价成功')
@@ -386,19 +419,28 @@ async function submitForm() {
 async function submitOrder() {
   if (ordering.value || orderCompleted.value) return
   if (!validateForm()) return
-  ordering.value = true
+  beginOrderRequest()
 
   // 先刷新按钮禁用状态并让出主线程，再执行参数组装和 Qt 调用。
   await nextTick()
   await new Promise<void>(resolve => window.setTimeout(resolve, 0))
 
   const params: Record<string, any> = {}
-  for (const key of Object.keys(form)) { if (key === "remark") continue;
-    params[key] = { value: form[key], source: 'user' }
+  for (const key of Object.keys(form)) { if (key === "remark") continue
+    if (deeplineMode.value) {
+      const raw = fieldRawData[key]
+      const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+      params[key] = { ...rawRecord, value: form[key], source: submittedFieldSource(key) }
+    } else {
+      params[key] = { value: form[key], source: 'user' }
+    }
   }
-  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'computed' }
-  if (stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
-  if (impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
+  params['drillDenstity'] = {
+    value: computedDrillDensity.value,
+    source: deeplineMode.value ? 'ai' : 'computed',
+  }
+  if (!deeplineMode.value && stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
+  if (!deeplineMode.value && impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
   const payload = params
   const win = window as any
   console.log('[我→QT] 订单请求', { fieldCount: Object.keys(payload).length })
@@ -406,7 +448,7 @@ async function submitOrder() {
     if (!win.QtBridge?.send) throw new Error('QtBridge.send 不可用')
     win.QtBridge.send('html-button-message', payload)
   } catch (error: any) {
-    ordering.value = false
+    finishOrderRequest()
     ElMessage.error('提交订单失败: ' + (error.message || error))
   }
 }
@@ -530,13 +572,59 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
   pollTimer = window.setInterval(() => { void pollPayStatus() }, 1000)
 }
 
-function orderPayload() {
+function orderPayload(includeStructureTables = true) {
   const p: Record<string, any> = {}
   Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
   p['drillDenstity'] = computedDrillDensity.value
-  if (stackupRows.value.length) p['stackupTable'] = stackupRows.value
-  if (impRows.value.length) p['impedanceTable'] = impRows.value
+  if (includeStructureTables && stackupRows.value.length) p['stackupTable'] = stackupRows.value
+  if (includeStructureTables && impRows.value.length) p['impedanceTable'] = impRows.value
   return p
+}
+
+function isSuccessfulResponse(response: any): boolean {
+  return response?.success === true
+    || String(response?.code) === '200'
+    || String(response?.code) === '10000'
+}
+
+/** DeepLine 审核由 Qt 返回 reviewed 后继续创建 PCB 模型并更新订单状态。 */
+async function completeDeeplineReview() {
+  orderWorkflowPending = true
+  clearTimers()
+  qrVisible.value = false
+  qrCodeUrl.value = ''
+  qrOrderNo.value = ''
+
+  try {
+    const modelRes: any = await pcbModelIdCreate(userToken.value, {
+      task_id: taskId.value,
+      receiver_id: 1,
+      invoice_id: 1,
+      invoice_type: 1,
+      freight_price: 0,
+      // 与 A 页面 OrderCreate 的 pcbQuoteParams 一致，不额外上传叠层/阻抗表。
+      pcbQuoteParams: orderPayload(false),
+    })
+    if (!componentActive || !orderWorkflowPending) return
+    if (!isSuccessfulResponse(modelRes)) {
+      ElMessage.error(modelRes?.msg || modelRes?.message || 'PCB模型创建失败')
+      return
+    }
+
+    const statusRes: any = await updateOrderStatus({ task_id: taskId.value })
+    if (!componentActive || !orderWorkflowPending) return
+    if (!isSuccessfulResponse(statusRes)) {
+      ElMessage.error(statusRes?.msg || statusRes?.message || '订单状态更新失败')
+      return
+    }
+    orderCompleted.value = true
+    ElMessage.success('订单提交成功')
+  } catch (error: any) {
+    reportError('DeepLine审核流程', error, error?.message || '订单处理失败，请稍后重试')
+  } finally {
+    orderWorkflowPending = false
+    finishOrderRequest()
+  }
 }
 
 // ==================== QtMessage ====================
@@ -568,6 +656,7 @@ function resetToInitialState() {
   userUid.value = ''
   tokenReady.value = false
   formDataLoaded.value = false
+  deeplineMode.value = false
   applyingData = true
   const defaults = JSON.parse(JSON.stringify(DEFAULT_VALUES))
   for (const k of Object.keys(form)) {
@@ -593,10 +682,23 @@ async function handleQtMessage(event: Event) {
   console.log('[QT消息]', { returnName: rn, code: detail })
 
   if (rn === 'token') {
-    if (detail.taskId) taskId.value = detail.taskId
+    const tokenContext = resolveDeeplineToken(detail, Object.keys(form))
+    deeplineMode.value = tokenContext.enabled
+    userToken.value = tokenContext.token
+    userUid.value = tokenContext.uid
+    if (tokenContext.taskId) taskId.value = tokenContext.taskId
     tokenReady.value = Boolean(taskId.value)
     if (!tokenReady.value) { ElMessage.error('未获取到有效 TaskId'); return }
-    loadQuoteParamsFromApi()
+    if (deeplineMode.value) {
+      applyFieldData(tokenContext.parameters)
+      handleSizeBlur()
+      formDataLoaded.value = true
+      quoteData.value = null
+      oldQuoteData.value = null
+      ElMessage.success('DeepLine 数据已同步')
+      return
+    }
+    void loadQuoteParamsFromApi()
     return
   }
 
@@ -635,6 +737,21 @@ async function handleQtMessage(event: Event) {
   }
 
   if (rn === 'reviewed') {
+    if (deeplineMode.value) {
+      if (!awaitingOrderedResponse || orderWorkflowPending) {
+        console.warn('[DeepLine审核流程] 已忽略未匹配或重复的 reviewed 消息')
+        return
+      }
+      awaitingOrderedResponse = false
+      clearOrderResponseTimer()
+      if (detail.code !== undefined && detail.code !== null && Number(detail.code) !== 200) {
+        finishOrderRequest()
+        ElMessage.error(detail.message || '审核失败')
+        return
+      }
+      await completeDeeplineReview()
+      return
+    }
     updateOrderStatus({ task_id: taskId.value }).then((res: any) => {
       if (String(res.code) === '200' || String(res.code) === '10000') {
         ElMessage.success('订单提交成功')
@@ -651,6 +768,10 @@ async function handleQtMessage(event: Event) {
   }
 
   if (rn === 'ordered') {
+    if (deeplineMode.value) {
+      console.warn('[DeepLine审核流程] 已忽略 ordered 消息，当前流程等待 reviewed')
+      return
+    }
     // 每次前端提交只允许消费一个 ordered 响应，拒绝重复、陈旧和主动注入的消息。
     if (!awaitingOrderedResponse || orderWorkflowPending) {
       console.warn('[订单流程] 已忽略未匹配或重复的 ordered 消息')
@@ -726,8 +847,11 @@ async function handleQtMessage(event: Event) {
 
 // 用 API 数据填充表单
 async function loadQuoteParamsFromApi() {
+  if (deeplineMode.value) return
+  const requestTaskId = taskId.value
   try {
-    const res: any = await getOnlineQuoteParamsInfo({ task_id: taskId.value  })
+    const res: any = await getOnlineQuoteParamsInfo({ task_id: requestTaskId })
+    if (deeplineMode.value || requestTaskId !== taskId.value) return
     if (res.code === 200 && res.data) {
       const data = res.data
       applyingData = true
@@ -769,15 +893,15 @@ async function loadQuoteParamsFromApi() {
       formDataLoaded.value = true
       handleSizeBlur()
       // 获取旧报价
-      getOrderPriceQuery({ task_id: taskId.value  }).then((priceRes: any) => {
-        if (priceRes.code === 200) oldQuoteData.value = priceRes.data
+      getOrderPriceQuery({ task_id: requestTaskId }).then((priceRes: any) => {
+        if (!deeplineMode.value && requestTaskId === taskId.value && priceRes.code === 200) oldQuoteData.value = priceRes.data
       }).catch(() => {})
     }
   } catch {}
 }
 
 const checkoutContext = {
-  oldQuoteData, quoteData, submitting, ordering, tokenReady, orderCompleted, notifyLoading,
+  oldQuoteData, quoteData, submitting, ordering, tokenReady, orderCompleted, notifyLoading, deeplineMode,
   formatMoney, submitForm, submitOrder, submitNotify,
   qrVisible, qrCodeUrl, qrExpired, qrCountdown, qrRefreshing, clearTimers, refreshQrCode,
 }

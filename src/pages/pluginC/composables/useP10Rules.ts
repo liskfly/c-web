@@ -1,4 +1,5 @@
 import { computed, watch } from 'vue'
+import { evaluateP10ThicknessTolerance } from '../domain/thicknessTolerance'
 
 export function useP10Rules(form: Record<string, any>) {
   // ==================== 条件 ====================
@@ -82,18 +83,30 @@ export function useP10Rules(form: Record<string, any>) {
     }
   })
   
-  // 成品板厚联动板厚公差 & 超范围提醒
+  // 成品板厚联动板厚公差 & 超范围提醒（P10 范围：0.6~3.5mm）
   watch(() => form.boardThickness, (val) => {
     const n = Number(val)
-    if (Number.isFinite(n)) {
+    if (val !== null && val !== undefined && val !== '' && Number.isFinite(n)) {
       form.thicknessTolerance = n < 1.0 ? '+/-0.10mm' : '+/-10%'
     }
     const KEY = 'BOARD_THICKNESS_LIMIT'
     form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
     if (Number.isFinite(n) && n > 0 && (n < 0.6 || n > 3.5)) {
-      form.remark.push(KEY + '|' + '成品板厚：P10工厂完成板厚加工能力范围：0.6~3.5mm，超范围放P10以外的其他工厂生产，电巢走线下下单模式进行')
+      form.remark.push(KEY + '|' + '成品板厚：超出P10工厂能力（0.6~3.5mm范围），走线下下单模式进行')
     }
   })
+
+  // 板厚公差按成品板厚换算后判断是否超出 P10 能力；C 页面只展示，不上传审核参数。
+  watch([() => form.boardThickness, () => form.thicknessTolerance], () => {
+    const KEY = 'THICKNESS_TOLERANCE_LIMIT'
+    form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
+    const evaluation = evaluateP10ThicknessTolerance(form.boardThickness, form.thicknessTolerance)
+    if (evaluation?.exceeds) {
+      form.remark.push(
+        KEY + '|' + `板厚公差：${form.thicknessTolerance}超出P10工厂能力（当前成品板厚对应能力为${evaluation.limitText}），走线下下单模式进行`,
+      )
+    }
+  }, { immediate: true })
   // 外层最小线宽超范围提醒（< 3mil）
   watch(() => form.minTraceWidthOuter, (val) => {
     const n = Number(val)

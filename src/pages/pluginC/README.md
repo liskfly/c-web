@@ -8,6 +8,7 @@
 - `components/parameters/`：基本信息、工艺信息和个性化服务三个参数分区。
 - `composables/`：材料联动、P10 校验、自动补全、尺寸联动及叠层/阻抗状态。
 - `config/`：表单默认值、选项、字段文案和材料规则。
+- `domain/`：板厚公差等无副作用、可复用的业务规则。
 - `pluginC.css`：限定在 `.plugin-c-page` 下的页面样式。
 
 ## 维护约定
@@ -16,3 +17,8 @@
 2. 监听器和业务联动放入 `composables/`，接口与 Qt 消息由页面统一编排。
 3. 独立页面区块放入 `components/`，参数字段按所属分区维护。
 4. 新增异步流程时保留重复提交保护，并在页面卸载时清理计时器和监听器。
+
+## 初始化与提交分流
+
+- Qt 的 `token` 消息不含 `deepline_user_info`：继续通过线上接口加载参数，并走原订单/支付流程。
+- Qt 的 `token` 消息含 `deepline_user_info`：直接使用其中的 PCB 参数，不请求线上参数接口；报价调用 `getQuoteInfoOfflinePure`，提交审核后等待 Qt 返回 `reviewed`，再依次调用 `PCBModelIDCreate` 和 `UpdateOrderStatus`。

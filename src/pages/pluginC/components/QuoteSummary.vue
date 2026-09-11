@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const props = defineProps<{ context: Record<string, any> }>()
 const {
-  oldQuoteData, quoteData, submitting, ordering, tokenReady, orderCompleted, notifyLoading,
+  oldQuoteData, quoteData, submitting, ordering, tokenReady, orderCompleted, notifyLoading, deeplineMode,
   formatMoney, submitForm, submitOrder, submitNotify,
 } = props.context
 </script>
@@ -38,7 +38,7 @@ const {
         <div class="qc-total"><span>预估总价<br><small>(不含税运)</small></span><span class="qc-price">{{ quoteData ? '¥' + formatMoney(quoteData.totalFee) : '--' }}</span></div>
         <button class="btn-submit" :disabled="submitting || !tokenReady" @click="submitForm">{{ submitting ? '提交中...' : '获取报价' }}</button>
         <button class="btn-submit btn-order" :disabled="ordering || !quoteData || !tokenReady || orderCompleted" @click="submitOrder">{{ orderCompleted ? '已提交' : ordering ? '提交中...' : '提交审核' }}</button>
-        <button class="btn-submit" :disabled="!orderCompleted || notifyLoading" @click="submitNotify" style="background:linear-gradient(90deg,#00b42a,#00a057)">{{ notifyLoading ? '确认中...' : '审核确认' }}</button>
+        <button v-if="!deeplineMode" class="btn-submit" :disabled="!orderCompleted || notifyLoading" @click="submitNotify" style="background:linear-gradient(90deg,#00b42a,#00a057)">{{ notifyLoading ? '确认中...' : '审核确认' }}</button>
         <p class="qc-note">价格仅供参考，以审核为准</p>
       </div>
 </template>

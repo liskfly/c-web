@@ -389,6 +389,7 @@ const {
   sourceLabel,
   sourceClass,
   sourceOptions,
+  showSourceOptionValues,
   selectSource,
   applyFieldData: applyFieldSourceData,
 } = useFieldSources({
@@ -412,7 +413,6 @@ type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' |
 /** 提交来源与页面“来源”列保持一致，供 Qt 保存后在 C 页面还原。 */
 function submittedFieldSource(field: string): SubmittedFieldSource {
   if (!hasFieldValue(field)) return ''
-  if (userModifiedFields.value.has(field)) return 'user'
 
   const source = fieldSource[field]
   if (source === 'ai' || source === 'cam') return source
@@ -694,12 +694,12 @@ async function handleQtMessage(event: Event) {
       // 超P10：转人工审核，成功后禁止再次提交；失败则停止，可重新点击按钮重试
       if (auditReasons.length) {
         try {
-          // const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
-          // if (Number(auditRes.code) === 200) {
-          //   ElMessage.success('未付款转人工审核成功,已通知前端')
-          //   orderCompleted.value = true
-          //   return
-          // }
+          const auditRes: any = await unpaidAuditCallback({ taskId: taskId.value, order_no: orderNo })
+          if (Number(auditRes.code) === 200) {
+            ElMessage.success('未付款转人工审核成功,已通知前端')
+            orderCompleted.value = true
+            return
+          }
           ElMessage.error(withErrorSource('asem', auditRes.message, '转人工审核失败，请重新点击提交重试'))
           return
         } catch (error) {
@@ -731,7 +731,11 @@ async function handleQtMessage(event: Event) {
   }
 
   // 表单数据
-  const data = detail.parameters || detail
+  const rawData = detail.parameters || detail
+  // 兼容算法完整结果：真正用于页面赋值的候选参数位于 Set 节点。
+  const data = rawData?.Set && typeof rawData.Set === 'object' && !Array.isArray(rawData.Set)
+    ? rawData.Set
+    : rawData
   await applyFieldData(data)
   handleSizeBlur()
   formDataLoaded.value = true
@@ -750,7 +754,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, conflictMode, remarkVisible, fieldBgClass, sourceClass, sourceLabel, sourceOptions, selectSource,
+  form, sections, opts, conflictMode, remarkVisible, fieldBgClass, sourceClass, sourceLabel, sourceOptions, showSourceOptionValues, selectSource,
   showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,

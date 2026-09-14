@@ -22,7 +22,8 @@ export function useFieldSources(options: FieldSourceOptions) {
   const fieldSource = reactive<Record<string, FieldSourceCode>>({})
   const fieldRawData = reactive<Record<string, any>>({})
   const remoteOptions = reactive<Record<string, FieldSourceOption[]>>({})
-  const userValues = reactive<Record<string, any>>({})
+  // 记录用户通过来源下拉选中的值，用来区分“选择来源”和“手动输入”。
+  const selectedSourceValues = reactive<Record<string, any>>({})
   const userModifiedFields = ref<Set<string>>(new Set())
   const userBaseline = reactive<Record<string, any>>(cloneFieldValue(defaultValues))
   let applyingData = false
@@ -36,27 +37,49 @@ export function useFieldSources(options: FieldSourceOptions) {
   }
 
   function isSameValue(a: any, b: any): boolean {
-    if ((Array.isArray(a) && Array.isArray(b)) ||
-      (a && b && typeof a === 'object' && typeof b === 'object')) {
-      return JSON.stringify(a) === JSON.stringify(b)
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+      return a.every((value, index) => isSameValue(value, b[index]))
     }
-    if ((typeof a === 'number' || typeof b === 'number') &&
-      typeof a !== 'boolean' && typeof b !== 'boolean' &&
-      a !== null && b !== null && a !== undefined && b !== undefined && a !== '' && b !== '') {
-      const na = Number(a)
-      const nb = Number(b)
-      if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb
+
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      const aKeys = Object.keys(a).sort()
+      const bKeys = Object.keys(b).sort()
+      return aKeys.length === bKeys.length &&
+        aKeys.every((key, index) => key === bKeys[index] && isSameValue(a[key], b[key]))
     }
-    return String(a) === String(b)
+
+    const normalizeText = (value: unknown) => String(value ?? '')
+      .normalize('NFKC')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .trim()
+    const aText = normalizeText(a)
+    const bText = normalizeText(b)
+    const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
+
+    if (typeof a !== 'boolean' && typeof b !== 'boolean' &&
+      numericPattern.test(aText) && numericPattern.test(bText)) {
+      return Number(aText) === Number(bText)
+    }
+    return aText === bText
   }
 
   function rebuildUserModified() {
     if (applyingData) return
     const next = new Set<string>()
     for (const field of Object.keys(form)) {
-      if (!isSameValue(form[field], userBaseline[field])) {
+      if (field === 'remark') continue
+      if (Object.prototype.hasOwnProperty.call(selectedSourceValues, field)) {
+        if (isSameValue(form[field], selectedSourceValues[field])) {
+          next.add(field)
+          continue
+        }
+        delete selectedSourceValues[field]
+      }
+      if (fieldSource[field] === 'user' || !isSameValue(form[field], userBaseline[field])) {
         next.add(field)
-        userValues[field] = cloneFieldValue(form[field])
+        fieldSource[field] = 'user'
+        delete fieldRawData[field]
       }
     }
     userModifiedFields.value = next
@@ -70,10 +93,20 @@ export function useFieldSources(options: FieldSourceOptions) {
 
   function fieldBgClass(field: string): string {
     const source = fieldSource[field]
-    if (userModifiedFields.value.has(field) || source === 'user') return 'font-blue'
+    const modified = userModifiedFields.value.has(field) || source === 'user'
     if (source === 'conflict') return 'bg-conflict'
-    if (source === 'ai') return 'bg-green'
-    if (source === 'cam') return 'bg-orange'
+    if (!hasFieldValue(field)) {
+      const classes = []
+      if (!hasDefault(field)) classes.push('bg-light-red')
+      if (modified) classes.push('font-blue')
+      return classes.join(' ')
+    }
+    if (source === 'ai') return modified ? 'bg-green font-blue' : 'bg-green'
+    if (source === 'cam') {
+      const selectedByUser = Object.prototype.hasOwnProperty.call(selectedSourceValues, field)
+      return selectedByUser ? 'bg-cam-selected font-blue' : 'bg-orange'
+    }
+    if (modified) return 'font-blue'
     if (source === 'server default' || source === 'system default') return ''
     return hasDefault(field) ? '' : 'bg-light-red'
   }
@@ -82,7 +115,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     const source = fieldSource[field]
     if (source === 'conflict') return '数据有冲突'
     if (!hasFieldValue(field)) return ''
-    if (userModifiedFields.value.has(field) || source === 'user') return '用户确认'
+    if (source === 'user') return '用户修改'
     if (source === 'ai') return 'AI提参'
     if (source === 'cam') return 'CAM提参'
     if (source === 'system default') return '系统默认'
@@ -95,7 +128,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     const source = fieldSource[field]
     if (source === 'conflict') return 'badge conflict'
     if (!hasFieldValue(field)) return 'badge empty'
-    if (userModifiedFields.value.has(field) || source === 'user') return 'badge user'
+    if (source === 'user') return 'badge user'
     if (source === 'ai') return 'badge ai'
     if (source === 'cam') return 'badge extracted'
     return 'badge empty'
@@ -114,18 +147,9 @@ export function useFieldSources(options: FieldSourceOptions) {
       })
     }
     result.push(...(remoteOptions[field] || []))
-    if (Object.prototype.hasOwnProperty.call(userValues, field)) {
-      result.push({
-        id: `user:${field}`,
-        kind: 'user',
-        label: '用户确认',
-        source: 'user',
-        value: cloneFieldValue(userValues[field]),
-      })
-    }
 
     const currentSource = fieldSource[field]
-    if (sourceLabel(field) && result.length === 0 && currentSource !== 'conflict') {
+    if (sourceLabel(field) && result.length === 0 && currentSource !== 'conflict' && currentSource !== 'user') {
       result.push({
         id: `current:${field}`,
         kind: 'current',
@@ -138,6 +162,10 @@ export function useFieldSources(options: FieldSourceOptions) {
     return result
   }
 
+  function showSourceOptionValues(field: string): boolean {
+    return conflictMode && (remoteOptions[field]?.length || 0) > 1
+  }
+
   function clearValue(field: string): any {
     const initialValue = initialValues[field]
     if (Array.isArray(initialValue)) return []
@@ -148,10 +176,39 @@ export function useFieldSources(options: FieldSourceOptions) {
     for (const field of fields) userBaseline[field] = cloneFieldValue(form[field])
   }
 
+  function resolveInitialCandidate(candidates: FieldSourceOption[]): {
+    candidate?: FieldSourceOption
+    conflict: boolean
+  } {
+    if (candidates.length === 0) return { conflict: false }
+    if (candidates.length === 1) return { candidate: candidates[0], conflict: false }
+
+    // 非冲突版本只接收单对象；意外收到候选数组时不擅自选择其中一条。
+    if (!conflictMode) return { conflict: false }
+
+    const aiCandidates = candidates.filter(candidate => candidate.source === 'ai')
+    const camCandidates = candidates.filter(candidate => candidate.source === 'cam')
+
+    if (aiCandidates.length && camCandidates.length) {
+      const firstAi = aiCandidates[0]
+      const valuesDiffer = [...aiCandidates, ...camCandidates]
+        .some(candidate => !isSameValue(candidate.value, firstAi.value))
+      return valuesDiffer
+        ? { conflict: true }
+        : { candidate: firstAi, conflict: false }
+    }
+
+    // 只有 AI 或只有 CAM 时，均按后端顺序采用第一条。
+    if (aiCandidates.length) return { candidate: aiCandidates[0], conflict: false }
+    if (camCandidates.length) return { candidate: camCandidates[0], conflict: false }
+
+    // 未识别来源的多条候选仍按冲突处理，避免静默选错数据。
+    return { conflict: true }
+  }
+
   async function selectSource(field: string, optionId: string) {
     const selected = sourceOptions(field).find(option => option.id === optionId)
     if (!selected) return
-    const before = Object.fromEntries(Object.keys(form).map(key => [key, cloneFieldValue(form[key])]))
     applyingData = true
     try {
       form[field] = cloneFieldValue(selected.value)
@@ -159,8 +216,8 @@ export function useFieldSources(options: FieldSourceOptions) {
       if (selected.raw) fieldRawData[field] = selected.raw
       else delete fieldRawData[field]
       await nextTick()
-      const changedFields = Object.keys(form).filter(key => !isSameValue(before[key], form[key]))
-      snapshotBaseline(changedFields.length ? changedFields : [field])
+      selectedSourceValues[field] = cloneFieldValue(form[field])
+      userModifiedFields.value = new Set([...userModifiedFields.value, field])
     } finally {
       applyingData = false
       rebuildUserModified()
@@ -173,7 +230,7 @@ export function useFieldSources(options: FieldSourceOptions) {
   ) {
     applyingData = true
     try {
-      for (const map of [fieldSource, fieldRawData, remoteOptions, userValues]) {
+      for (const map of [fieldSource, fieldRawData, remoteOptions, selectedSourceValues]) {
         for (const key of Object.keys(map)) delete map[key]
       }
       userModifiedFields.value = new Set()
@@ -190,13 +247,23 @@ export function useFieldSources(options: FieldSourceOptions) {
         if (!(field in form)) continue
         const candidates = normalizeRemoteOptions(field, data[field], systemDefaultFields.has(field))
           .map(candidate => ({ ...candidate, value: coerceValue(field, candidate.value) }))
+          .filter(candidate => hasMeaningfulValue(candidate.value))
         remoteOptions[field] = candidates
-        if (candidates.length === 1) {
-          const candidate = candidates[0]
+        const resolution = resolveInitialCandidate(candidates)
+        if (resolution.candidate) {
+          const candidate = resolution.candidate
           form[field] = cloneFieldValue(candidate.value)
           fieldSource[field] = candidate.source
           fieldRawData[field] = candidate.raw
-        } else if (conflictMode && candidates.length > 1) {
+        } else if (resolution.conflict) {
+          console.warn('[字段来源冲突]', {
+            field,
+            candidates: candidates.map(candidate => ({
+              source: candidate.source,
+              value: candidate.value,
+              valueType: Array.isArray(candidate.value) ? 'array' : typeof candidate.value,
+            })),
+          })
           form[field] = clearValue(field)
           fieldSource[field] = 'conflict'
         }
@@ -228,6 +295,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     sourceLabel,
     sourceClass,
     sourceOptions,
+    showSourceOptionValues,
     selectSource,
     applyFieldData,
   }

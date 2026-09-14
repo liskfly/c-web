@@ -53,7 +53,7 @@ function candidateLabel(source: FieldSourceCode, position: number): string {
   if (source === 'cam') return `CAM提参${position}`
   if (source === 'system default') return '系统默认'
   if (source === 'server default') return '默认行业标准'
-  if (source === 'user') return '用户确认'
+  if (source === 'user') return '用户修改'
   return `数据来源${position}`
 }
 

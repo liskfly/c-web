@@ -9,6 +9,7 @@ const props = defineProps<{
 
 const label = computed(() => props.context.sourceLabel(props.field))
 const options = computed(() => props.context.sourceOptions(props.field))
+const showOptionValues = computed(() => props.context.showSourceOptionValues(props.field))
 
 function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.join('、')
@@ -21,7 +22,7 @@ function formatValue(value: unknown): string {
 
 <template>
   <span
-    v-if="label && !context.conflictMode"
+    v-if="label && (!context.conflictMode || options.length === 0)"
     :class="context.sourceClass(field)"
   >{{ label }}</span>
   <el-dropdown
@@ -43,7 +44,7 @@ function formatValue(value: unknown): string {
         >
           <span class="source-option-label">{{ option.label }}</span>
           <span
-            v-if="label === '数据有冲突'"
+            v-if="showOptionValues"
             class="source-option-value"
             :title="formatValue(option.value)"
           >{{ formatValue(option.value) }}</span>

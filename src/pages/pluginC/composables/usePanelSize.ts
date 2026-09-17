@@ -2,13 +2,11 @@ import { ElMessage } from 'element-plus'
 
 interface PanelSizeOptions {
   form: Record<string, any>
-  fieldSource: Record<string, string>
-  userBaseline: Record<string, any>
-  rebuildUserModified: () => void
+  markDefaultAlgorithmFields: (fields: string[]) => void
 }
 
 export function usePanelSize(options: PanelSizeOptions) {
-  const { form, fieldSource, userBaseline, rebuildUserModified } = options
+  const { form, markDefaultAlgorithmFields } = options
 
   // ==================== PCS/SET 尺寸联动 ====================
   function handleSizeBlur() {
@@ -54,14 +52,8 @@ export function usePanelSize(options: PanelSizeOptions) {
     else if (ratio >= 1.25) { form.setMethod = '客户拼板' }
     form.clientPanelHorizontal = 1
     form.clientPanelVertical = Math.floor(ratio / 1.25) + 1
-    // 尺寸联动计算带出的 拼板方式/拼板个数：来源标记 AI提参，并同步基准（不算用户改动）
-    fieldSource['setMethod'] = 'ai'
-    fieldSource['clientPanelHorizontal'] = 'ai'
-    fieldSource['clientPanelVertical'] = 'ai'
-    userBaseline['setMethod'] = JSON.parse(JSON.stringify(form.setMethod))
-    userBaseline['clientPanelHorizontal'] = JSON.parse(JSON.stringify(form.clientPanelHorizontal))
-    userBaseline['clientPanelVertical'] = JSON.parse(JSON.stringify(form.clientPanelVertical))
-    rebuildUserModified()
+    // 尺寸联动计算带出的拼板方式/拼板个数，不属于 AI/CAM 提参。
+    markDefaultAlgorithmFields(['setMethod', 'clientPanelHorizontal', 'clientPanelVertical'])
   }
   
   function requestPCSSize() {

@@ -1,7 +1,10 @@
 import { computed, watch } from 'vue'
 import { evaluateP10ThicknessTolerance } from '../domain/thicknessTolerance'
 
-export function useP10Rules(form: Record<string, any>) {
+export function useP10Rules(
+  form: Record<string, any>,
+  markDefaultAlgorithmFields?: (fields: string[]) => void,
+) {
   const showPanelFields = computed(() => form.setMethod === '客户拼板')
   // 外形要求：客户拼板/单片加工艺边 时必填，其他情况非必填
   const requireClientPanelSeparation = computed(() => form.setMethod === '客户拼板' || form.setMethod === '单片加工艺边')
@@ -9,6 +12,8 @@ export function useP10Rules(form: Record<string, any>) {
   watch(() => form.setMethod, (val) => {
     if (val === '单片无拼板') form.clientPanelSeparation = ''
     else if (val === '客户拼板' || val === '单片加工艺边') form.clientPanelSeparation = '拼板+V-CUT交货'
+    else return
+    markDefaultAlgorithmFields?.(['clientPanelSeparation'])
   })
   const showEnigGold = computed(() => form.surfaceFinish === '沉金')
   const showGoldFinger = computed(() => form.goldFingerType !== '无')

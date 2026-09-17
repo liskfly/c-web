@@ -1,8 +1,9 @@
 import { computed, ref, watch, type Ref } from 'vue'
+import { normalizeImpedanceRows, type ImpedanceFormRow } from '@/utils/impedanceData'
+import { normalizeStackupRows, type StackupFormRow } from '@/utils/stackupData'
 
 export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref<string>) {
-  interface StackupRow { layerName: string; material: string; pcbMaterialType: string; copperThickness: number | null; dielectricThickness: number | null; dk: number | null }
-  const stackupRows = ref<StackupRow[]>([])
+  const stackupRows = ref<StackupFormRow[]>([])
   // 铜厚默认值(mil)：顶层/底层取“外层基铜厚度”(um→mil)，内层取“内层基铜厚度”(oz→mil)
   const OUTER_CU_DEFAULT = 0.7  // 外层基铜厚度缺失时回退 0.5oz ≈ 0.7mil
   const INNER_CU_DEFAULT = 1.4  // 内层基铜厚度缺失时回退 1oz ≈ 1.4mil
@@ -17,14 +18,14 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     return Number.isFinite(v) && v > 0 ? Number((v * 1.4).toFixed(2)) : INNER_CU_DEFAULT
   }
 
-  function makeCu(outer: boolean): StackupRow {
+  function makeCu(outer: boolean): StackupFormRow {
     return { layerName: '', material: 'CU', pcbMaterialType: 'HTE', copperThickness: outer ? outerCuMil() : innerCuMil(), dielectricThickness: null, dk: null }
   }
 
   const stackupScheme = ref<'normal' | 'alt'>('normal')
 
   function generateStackup(N: number, scheme: 'normal' | 'alt' = 'normal') {
-    const rows: StackupRow[] = []
+    const rows: StackupFormRow[] = []
     const M1 = scheme === 'normal' ? 'PP' : 'CORE'
     const M2 = scheme === 'normal' ? 'CORE' : 'PP'
     // PP 行“类型”默认值 = 当前匹配存储的 PP 型号
@@ -85,7 +86,7 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
   }
 
   // 材料切换时重置字段：CU 行类型默认 HTE，非 CU 行清空铜厚
-  function onMaterialChange(row: StackupRow) {
+  function onMaterialChange(row: StackupFormRow) {
     if (row.material === 'CU') {
       row.pcbMaterialType = 'HTE'
       row.dielectricThickness = null
@@ -95,14 +96,13 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     }
   }
 
-  interface ImpRow { impType: string; controlLayer: string; refLayerTop: string; refLayerBottom: string; isCoated: boolean; lineWidth: number | null; lineSpacing: number | null; lineToCopper: number | null; impTarget: number | null; impTol: number; _refTopError?: string; _refBottomError?: string }
-  const impTypes = ["外层单端","外层单端共面地","外层差分","外层差分共面地","内层单端(双层屏蔽)","内层差分(双层屏蔽)","内层单端(单层屏蔽)","内层差分(单层屏蔽)","内层单端共面地(双层屏蔽)","内层差分共面地(双层屏蔽)","内层层间差分(双层屏蔽)","内层差分1B2A(双层屏蔽)","内层差分1B2A(单层屏蔽)"]
-  const impRows = ref<ImpRow[]>([])
+  const impTypes = ["外层单端","外层单端共面地","外层差分","外层差分共面地","内层单端","内层差分","内层单端(双层屏蔽)","内层差分(双层屏蔽)","内层单端(单层屏蔽)","内层差分(单层屏蔽)","内层单端共面地(双层屏蔽)","内层差分共面地(双层屏蔽)","内层层间差分(双层屏蔽)","内层差分1B2A(双层屏蔽)","内层差分1B2A(单层屏蔽)"]
+  const impRows = ref<ImpedanceFormRow[]>([])
 
   const layerOptions = computed(() => Array.from({ length: Number(form.layerCount) || 0 }, (_, i) => 'L' + (i + 1)))
   const refLayerOptions = computed(() => ['', ...layerOptions.value])
 
-  function onControlLayerChange(row: ImpRow) {
+  function onControlLayerChange(row: ImpedanceFormRow) {
     const idx = parseInt(row.controlLayer?.replace('L', '')) || 0
     const total = Number(form.layerCount) || 0
     if (!idx || idx < 1 || idx > total) { row.refLayerTop = ''; row.refLayerBottom = ''; row._refTopError = ''; row._refBottomError = ''; return }
@@ -125,8 +125,7 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     return 'L' + (c + 1)
   }
 
-  function validateRefLayer(row: ImpRow, type: 'top' | 'bottom') {
-    const errKey = type === 'top' ? '_refTopError' : '_refBottomError' as keyof ImpRow
+  function validateRefLayer(row: ImpedanceFormRow, type: 'top' | 'bottom') {
     if (!row.controlLayer) { if (type === 'top') row._refTopError = ''; else row._refBottomError = ''; return }
     const expected = getExpectedRefLayer(row.controlLayer, type)
     const actual = type === 'top' ? row.refLayerTop : row.refLayerBottom
@@ -140,16 +139,16 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     }
   }
 
-  function addImpRow() { impRows.value.push({ impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 }) }
+  function addImpRow() { impRows.value.push({ impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10, impOhmTol: null }) }
 
   function insertImpRow(index: number) {
-    impRows.value.splice(index + 1, 0, { impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10 })
+    impRows.value.splice(index + 1, 0, { impType: '', controlLayer: '', refLayerTop: '', refLayerBottom: '', isCoated: false, lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10, impOhmTol: null })
   }
 
   // 根据层数生成阻抗行：L1=外层单端、底层=外层差分，这两层盖油默认true，其余全空
   function generateImpedance(N: number) {
     if (N < 2) { impRows.value = []; return }
-    const rows: ImpRow[] = []
+    const rows: ImpedanceFormRow[] = []
     for (let i = 1; i <= N; i++) {
       const isFirst = i === 1
       const isLast = i === N
@@ -159,11 +158,19 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
         refLayerTop: '',
         refLayerBottom: '',
         isCoated: isFirst || isLast,
-        lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10,
+        lineWidth: null, lineSpacing: null, lineToCopper: null, impTarget: null, impTol: 10, impOhmTol: null,
       })
     }
     impRows.value = rows
     impRows.value.forEach(r => onControlLayerChange(r))
+  }
+
+  function applyImpedanceRows(input: unknown[]) {
+    impRows.value = normalizeImpedanceRows(input)
+  }
+
+  function applyStackupRows(input: unknown[]) {
+    stackupRows.value = normalizeStackupRows(input)
   }
 
   function requestPCSSize() {
@@ -186,6 +193,8 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     addStackupRow,
     insertStackupRow,
     onMaterialChange,
+    applyStackupRows,
+    generateStackup,
     impRows,
     impTypes,
     layerOptions,
@@ -194,8 +203,9 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     validateRefLayer,
     addImpRow,
     insertImpRow,
+    applyImpedanceRows,
+    generateImpedance,
     requestPCSSize,
     requestSetSize,
   }
 }
-

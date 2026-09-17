@@ -1,4 +1,4 @@
-export type FieldSourceCode = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | 'conflict' | ''
+export type FieldSourceCode = 'ai' | 'cam' | 'server default' | 'system default' | 'default algorithm rule' | 'user' | 'conflict' | ''
 
 export interface RawFieldCandidate extends Record<string, any> {
   value?: unknown
@@ -45,6 +45,7 @@ function normalizeSource(source: unknown, useSystemDefault: boolean): FieldSourc
   if (value === 'ai' || value === 'cam' || value === 'user') return value
   if (value === 'system default') return 'system default'
   if (value === 'server default') return useSystemDefault ? 'system default' : 'server default'
+  if (value === 'default algorithm rule') return 'default algorithm rule'
   return ''
 }
 
@@ -53,6 +54,7 @@ function candidateLabel(source: FieldSourceCode, position: number): string {
   if (source === 'cam') return `CAM提参${position}`
   if (source === 'system default') return '系统默认'
   if (source === 'server default') return '默认行业标准'
+  if (source === 'default algorithm rule') return '默认算法规则'
   if (source === 'user') return '用户修改'
   return `数据来源${position}`
 }

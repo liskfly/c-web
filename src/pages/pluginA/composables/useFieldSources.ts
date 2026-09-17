@@ -13,12 +13,21 @@ interface FieldSourceOptions {
   initialValues: Record<string, any>
   defaultValues: Record<string, any>
   systemDefaultFields: Set<string>
+  autoConfirmedCamFields?: ReadonlySet<string>
   conflictMode: boolean
   coerceValue: (field: string, value: unknown) => any
 }
 
 export function useFieldSources(options: FieldSourceOptions) {
-  const { form, initialValues, defaultValues, systemDefaultFields, conflictMode, coerceValue } = options
+  const {
+    form,
+    initialValues,
+    defaultValues,
+    systemDefaultFields,
+    autoConfirmedCamFields = new Set<string>(),
+    conflictMode,
+    coerceValue,
+  } = options
   const fieldSource = reactive<Record<string, FieldSourceCode>>({})
   const fieldRawData = reactive<Record<string, any>>({})
   const remoteOptions = reactive<Record<string, FieldSourceOption[]>>({})
@@ -97,7 +106,10 @@ export function useFieldSources(options: FieldSourceOptions) {
     if (source === 'conflict') return 'bg-conflict'
     if (!hasFieldValue(field)) {
       const classes = []
-      if (!hasDefault(field)) classes.push('bg-light-red')
+      if (!hasDefault(field)) {
+        // 板材品牌、板材型号为非必填项；无默认值且未收到返回值时使用浅灰色。
+        classes.push(field === 'materialBrand' || field === 'materialVersion' ? 'bg-light-gray' : 'bg-light-red')
+      }
       if (modified) classes.push('font-blue')
       return classes.join(' ')
     }
@@ -107,7 +119,7 @@ export function useFieldSources(options: FieldSourceOptions) {
       return selectedByUser ? 'bg-cam-selected font-blue' : 'bg-orange'
     }
     if (modified) return 'font-blue'
-    if (source === 'server default' || source === 'system default') return ''
+    if (source === 'server default' || source === 'system default' || source === 'default algorithm rule') return ''
     return hasDefault(field) ? '' : 'bg-light-red'
   }
 
@@ -120,6 +132,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     if (source === 'cam') return 'CAM提参'
     if (source === 'system default') return '系统默认'
     if (source === 'server default') return '默认行业标准'
+    if (source === 'default algorithm rule') return '默认算法规则'
     if (systemDefaultFields.has(field)) return '系统默认'
     return hasDefault(field) ? '默认行业标准' : ''
   }
@@ -131,6 +144,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     if (source === 'user') return 'badge user'
     if (source === 'ai') return 'badge ai'
     if (source === 'cam') return 'badge extracted'
+    if (source === 'default algorithm rule') return 'badge algorithm'
     return 'badge empty'
   }
 
@@ -149,6 +163,15 @@ export function useFieldSources(options: FieldSourceOptions) {
     result.push(...(remoteOptions[field] || []))
 
     const currentSource = fieldSource[field]
+    if (currentSource === 'default algorithm rule' && hasFieldValue(field)) {
+      result.push({
+        id: `algorithm:${field}`,
+        kind: 'current',
+        label: '默认算法规则',
+        source: currentSource,
+        value: cloneFieldValue(form[field]),
+      })
+    }
     if (sourceLabel(field) && result.length === 0 && currentSource !== 'conflict' && currentSource !== 'user') {
       result.push({
         id: `current:${field}`,
@@ -174,6 +197,17 @@ export function useFieldSources(options: FieldSourceOptions) {
 
   function snapshotBaseline(fields = Object.keys(form)) {
     for (const field of fields) userBaseline[field] = cloneFieldValue(form[field])
+  }
+
+  /** 将页面公式或联动生成的字段标记为默认算法规则，并作为新的用户修改基准。 */
+  function markDefaultAlgorithmFields(fields: string[]) {
+    for (const field of fields) {
+      fieldSource[field] = 'default algorithm rule'
+      delete fieldRawData[field]
+      delete selectedSourceValues[field]
+      userBaseline[field] = cloneFieldValue(form[field])
+    }
+    rebuildUserModified()
   }
 
   function resolveInitialCandidate(candidates: FieldSourceOption[]): {
@@ -255,6 +289,10 @@ export function useFieldSources(options: FieldSourceOptions) {
           form[field] = cloneFieldValue(candidate.value)
           fieldSource[field] = candidate.source
           fieldRawData[field] = candidate.raw
+          // 指定制程能力字段只有 CAM 候选时，直接按用户已确认 CAM 的状态展示。
+          if (autoConfirmedCamFields.has(field) && candidates.every(item => item.source === 'cam')) {
+            selectedSourceValues[field] = cloneFieldValue(form[field])
+          }
         } else if (resolution.conflict) {
           console.warn('[字段来源冲突]', {
             field,
@@ -297,6 +335,7 @@ export function useFieldSources(options: FieldSourceOptions) {
     sourceOptions,
     showSourceOptionValues,
     selectSource,
+    markDefaultAlgorithmFields,
     applyFieldData,
   }
 }

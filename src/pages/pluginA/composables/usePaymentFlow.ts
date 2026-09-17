@@ -3,6 +3,8 @@ import { ElMessage } from 'element-plus'
 import { payCallback } from '@/api/pcb'
 import { getPcbOrderStatusV2 } from '@/api/invoice'
 import { withErrorSource, type ErrorSource } from '@/utils/errorSource'
+import type { ImpedancePayloadRow } from '@/utils/impedanceData'
+import type { StackupPayloadRow } from '@/utils/stackupData'
 
 interface PaymentFlowOptions {
   form: Record<string, any>
@@ -12,6 +14,8 @@ interface PaymentFlowOptions {
   isComponentActive: () => boolean
   generatePayQr: (orderNo: string) => Promise<{ qrUrl: string; mergeOrderNo: string; timeExpire: number }>
   formatDimensionTolerance: () => string
+  getImpedancePayload: () => ImpedancePayloadRow[]
+  getStackupPayload: () => StackupPayloadRow[]
   reportError: (context: string, error: unknown, message: string, source?: ErrorSource) => void
 }
 
@@ -25,7 +29,7 @@ function normalizeExpireTimestamp(value: unknown): number {
 export function usePaymentFlow(options: PaymentFlowOptions) {
   const {
     form, taskId, userToken, computedDrillDensity, isComponentActive,
-    generatePayQr, formatDimensionTolerance, reportError,
+    generatePayQr, formatDimensionTolerance, getImpedancePayload, getStackupPayload, reportError,
   } = options
 
   const qrVisible = ref(false); const qrCodeUrl = ref(''); const qrExpired = ref(false); const qrCountdown = ref(0); const qrOrderNo = ref(''); const qrRefreshing = ref(false)
@@ -149,8 +153,10 @@ export function usePaymentFlow(options: PaymentFlowOptions) {
     const p: Record<string, any> = {}
     Object.keys(form).forEach(k => { if (k !== "remark") p[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
     p['drillDenstity'] = computedDrillDensity.value
-    // if (stackupRows.value.length) p['stackupList'] = stackupRows.value
-    // if (impRows.value.length) p['impList'] = impRows.value
+    const stackupTable = getStackupPayload()
+    if (stackupTable.length) p['stackupTable'] = stackupTable
+    const impedanceTable = getImpedancePayload()
+    if (impedanceTable.length) p['impedanceTable'] = impedanceTable
     return p
   }
 

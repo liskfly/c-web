@@ -1,7 +1,10 @@
 import { computed, watch } from 'vue'
 import { evaluateP10ThicknessTolerance } from '../domain/thicknessTolerance'
 
-export function useP10Rules(form: Record<string, any>) {
+export function useP10Rules(
+  form: Record<string, any>,
+  markDefaultAlgorithmFields?: (fields: string[]) => void,
+) {
   // ==================== 条件 ====================
   const showPanelFields = computed(() => form.setMethod === '客户拼板')
   // 外形要求：客户拼板/单片加工艺边 时必填，其他情况非必填
@@ -10,6 +13,8 @@ export function useP10Rules(form: Record<string, any>) {
   watch(() => form.setMethod, (val) => {
     if (val === '单片无拼板') form.clientPanelSeparation = ''
     else if (val === '客户拼板' || val === '单片加工艺边') form.clientPanelSeparation = '拼板+V-CUT交货'
+    else return
+    markDefaultAlgorithmFields?.(['clientPanelSeparation'])
   })
   const showEnigGold = computed(() => form.surfaceFinish === '沉金')
   const showGoldFinger = computed(() => form.goldFingerType !== '无')
@@ -96,7 +101,7 @@ export function useP10Rules(form: Record<string, any>) {
     }
   })
 
-  // 板厚公差按成品板厚换算后判断是否超出 P10 能力；C 页面只展示，不上传审核参数。
+  // 板厚公差按成品板厚换算后判断是否超出 P10 能力。
   watch([() => form.boardThickness, () => form.thicknessTolerance], () => {
     const KEY = 'THICKNESS_TOLERANCE_LIMIT'
     form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
@@ -261,6 +266,64 @@ export function useP10Rules(form: Record<string, any>) {
       form.remark.push(KEY + '|' + '翘曲度：小于0.5%，超出P10工厂能力，走线下下单模式进行')
     }
   })
+
+  // ==================== P10 超能力汇总（更新订单状态时用于人工审核参数） ====================
+  // 与 A 页面保持一致，每条格式为“字段中文名：值，超制程;”。
+  function collectP10Reasons(): string[] {
+    const reasons: string[] = []
+    const add = (label: string, value: string) => reasons.push(`${label}：${value}，超制程;`)
+    const hasVal = (v: any) => v !== null && v !== undefined && v !== ''
+    const num = (v: any) => Number(v)
+    const numOver = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > t
+    const numBelow = (v: any, t: number) => hasVal(v) && Number.isFinite(num(v)) && num(v) > 0 && num(v) < t
+    const layerCount = num(form.layerCount)
+    const innerLayer = Number.isFinite(layerCount) && layerCount > 2
+
+    if (hasVal(form.layerCount) && Number.isFinite(layerCount) && layerCount > 20) add('板子层数', `${form.layerCount}层`)
+    if (form.blindVia) add('盲埋孔', '是')
+    if (innerLayer && numOver(form.innerCopperThickness, 2)) add('内层基铜厚度', `${form.innerCopperThickness}oz`)
+    if (numOver(form.outerBaseCopperThickness, 70)) add('外层基铜厚度', `${form.outerBaseCopperThickness}um`)
+    if (numOver(form.outerCopperThickness, 105)) add('外层完成铜厚度', `${form.outerCopperThickness}um`)
+    if (form.surfaceFinish === '沉金' && numOver(form.enigGoldThickness, 0.0762)) add('最小沉金金厚', `${form.enigGoldThickness}um`)
+    if (numOver(form.holeCopperThickness, 25.4)) add('最小孔铜', `${form.holeCopperThickness}um`)
+    if (hasVal(form.boardThickness) && Number.isFinite(num(form.boardThickness)) && num(form.boardThickness) > 0 && (num(form.boardThickness) < 0.6 || num(form.boardThickness) > 3.5)) add('成品板厚', `${form.boardThickness}mm`)
+
+    const thicknessToleranceEvaluation = evaluateP10ThicknessTolerance(form.boardThickness, form.thicknessTolerance)
+    if (thicknessToleranceEvaluation?.exceeds) add('板厚公差', String(form.thicknessTolerance))
+    if (numBelow(form.dimensionTolerance, 0.1)) add('外形公差', `${form.dimensionTolerance}mm`)
+
+    const warpageMatch = String(form.maxWarpage ?? '').match(/[0-9]*\.?[0-9]+/)
+    const warpage = warpageMatch ? Number(warpageMatch[0]) : NaN
+    if (Number.isFinite(warpage) && warpage > 0 && warpage < 0.5) add('翘曲度', `${warpage}%`)
+
+    if (numBelow(form.minTraceWidthOuter, 3)) add('外层最小线宽', `${form.minTraceWidthOuter}mil`)
+    if (numBelow(form.minTraceSpacingOuter, 3)) add('外层最小线距', `${form.minTraceSpacingOuter}mil`)
+    if (innerLayer && numBelow(form.minTraceWidthInner, 2.5)) add('内层最小线宽', `${form.minTraceWidthInner}mil`)
+    if (innerLayer && numBelow(form.minTraceSpacingInner, 2.5)) add('内层最小线距', `${form.minTraceSpacingInner}mil`)
+    if (numBelow(form.minHoleSize, 0.15)) add('最小孔径', `${form.minHoleSize}mm`)
+    if (form.solderMaskColor === '红色') add('阻焊颜色', '红色')
+    if (form.silkscreenColor && !['白色字符', '黑色字符', '不印字符'].includes(form.silkscreenColor)) add('字符颜色', form.silkscreenColor)
+    if (form.surfaceFinish && !['沉金', '无铅喷锡', 'OSP', '喷锡', '沉银', '沉锡', '无需表面处理'].includes(form.surfaceFinish)) add('表面处理', form.surfaceFinish)
+    if (form.acceptanceStandard && !['IPC 2', 'IPC 3'].includes(form.acceptanceStandard)) add('验收标准', form.acceptanceStandard)
+    if (form.periodFormat && !['WWYY', 'YYWW', 'MMYY', 'YYMM', 'DDMMYY', 'YYMMDD'].includes(form.periodFormat)) add('周期格式', form.periodFormat)
+
+    const listInvalid = (value: any, allowed: string[]) => Array.isArray(value) ? (value as string[]).filter((item: string) => !allowed.includes(item)) : []
+    const testInvalid = listInvalid(form.testRequirements, ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '不需要', '飞针测试', '夹具测试'])
+    if (testInvalid.length) add('测试要求', testInvalid.join('、'))
+    const shippingInvalid = listInvalid(form.shippingReports, ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '不需要'])
+    if (shippingInvalid.length) add('出货报告', shippingInvalid.join('、'))
+    const processInvalid = listInvalid(form.specialProcesses, ['电镀填孔', '金属包边', '金属化半孔', '背钻孔', '锥形孔', '阶梯孔', '铣阶梯槽', '控深钻', '不需要'])
+    if (processInvalid.length) add('特殊工艺', processInvalid.join('、'))
+
+    const pcsWidth = num(form.pcsSizeWidth)
+    const pcsHeight = num(form.pcsSizeHeight)
+    const setWidth = num(form.setSizeWidth)
+    const setHeight = num(form.setSizeHeight)
+    const sizeInvalid = (width: number, height: number) => Number.isFinite(width) && Number.isFinite(height) && ((width > 571.5 && (height <= 0 || height > 419.1)) || (height > 571.5 && (width <= 0 || width > 419.1)))
+    if (sizeInvalid(pcsWidth, pcsHeight)) add('PCS尺寸', `${form.pcsSizeWidth}x${form.pcsSizeHeight}mm`)
+    if (sizeInvalid(setWidth, setHeight)) add('SET尺寸', `${form.setSizeWidth}x${form.setSizeHeight}mm`)
+    return reasons
+  }
   
   const computedDrillDensity = computed(() => {
     const v = form.clientPanelVertical
@@ -279,6 +342,7 @@ export function useP10Rules(form: Record<string, any>) {
     showEnigGold,
     showGoldFinger,
     hasInnerLayer,
+    collectP10Reasons,
     computedDrillDensity,
   }
 }

@@ -22,6 +22,8 @@ import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 import { runtimeConfig } from '@/config/runtimeConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { wasErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
+import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
+import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true, invoice: true, delivery: true })
@@ -87,17 +89,10 @@ function applyMaterialPriorityRules() {
   const version = form.materialVersion
   if (version && versionDetailMap[version]) {
     fillByVersion(version)
-    // 型号匹配带出的项：来源标记为 AI提参（不算用户改动，不显示用户确认）
-    ;['materialType','materialBrand','materialTg','halogenFree'].forEach(k => { fieldSource[k] = 'ai' })
+    markDefaultAlgorithmFields(['materialType','materialBrand','materialTg','halogenFree'])
     return
   }
   currentPpModel.value = ''
-}
-
-// 补出的值：来源标 AI提参 + 同步基准（不算用户改动）
-function markAiAndBaseline(k: string) {
-  fieldSource[k] = 'ai'
-  userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
 }
 
 // 外层完成铜厚度/外层基铜厚度互补规则：只传其一时按规则补另一个
@@ -113,13 +108,13 @@ function applyCopperRules(data: Record<string, any>) {
     const base = Number(form.outerBaseCopperThickness)
     if (Number.isFinite(base)) {
       form.outerCopperThickness = base + (base >= 35 ? 35 : 18)
-      markAiAndBaseline('outerCopperThickness')
+      markDefaultAlgorithmFields(['outerCopperThickness'])
     }
   } else if (doneGiven && !baseGiven) {
     const done = Number(form.outerCopperThickness)
     if (Number.isFinite(done)) {
       form.outerBaseCopperThickness = done >= 70 ? done - 35 : done < 56 ? done - 18 : done
-      markAiAndBaseline('outerBaseCopperThickness')
+      markDefaultAlgorithmFields(['outerBaseCopperThickness'])
     }
   }
 }
@@ -159,8 +154,10 @@ function onMaterialVersionChange() {
     form.materialBrand = d.brand
     form.materialTg = d.tg === '高TG'
     form.halogenFree = d.halogen
+    markDefaultAlgorithmFields(['materialBrand','materialTg','halogenFree'])
   } else {
     fillByVersion(version)
+    markDefaultAlgorithmFields(['materialType','materialBrand','materialTg','halogenFree'])
   }
   syncPrevMaterial()
 }
@@ -216,17 +213,6 @@ function onMaterialHalogenChange() {
   })
 }
 
-// ==================== 表单联动与 P10 能力校验 ====================
-const {
-  showPanelFields,
-  requireClientPanelSeparation,
-  showEnigGold,
-  showGoldFinger,
-  hasInnerLayer,
-  collectP10Reasons,
-  computedDrillDensity,
-} = useP10Rules(form)
-
 // ==================== 自动补全 ====================
 const {
   queryMaterialBrand,
@@ -255,6 +241,8 @@ const {
   addStackupRow,
   insertStackupRow,
   onMaterialChange,
+  applyStackupRows,
+  generateStackup,
   impRows,
   impTypes,
   layerOptions,
@@ -263,6 +251,8 @@ const {
   validateRefLayer,
   addImpRow,
   insertImpRow,
+  applyImpedanceRows,
+  generateImpedance,
   requestPCSSize,
   requestSetSize,
 } = useBoardStructure(form, currentPpModel)
@@ -391,24 +381,41 @@ const {
   sourceOptions,
   showSourceOptionValues,
   selectSource,
+  markDefaultAlgorithmFields,
   applyFieldData: applyFieldSourceData,
 } = useFieldSources({
   form,
   initialValues: initialForm,
   defaultValues: DEFAULT_VALUES,
   systemDefaultFields,
+  autoConfirmedCamFields: new Set([
+    'minTraceWidthOuter',
+    'minTraceSpacingOuter',
+    'minTraceWidthInner',
+    'minTraceSpacingInner',
+    'minHoleSize',
+  ]),
   conflictMode,
   coerceValue: coerceFieldValue,
 })
 
+// ==================== 表单联动与 P10 能力校验 ====================
+const {
+  showPanelFields,
+  requireClientPanelSeparation,
+  showEnigGold,
+  showGoldFinger,
+  hasInnerLayer,
+  collectP10Reasons,
+  computedDrillDensity,
+} = useP10Rules(form, markDefaultAlgorithmFields)
+
 const { handleSizeBlur } = usePanelSize({
   form,
-  fieldSource,
-  userBaseline,
-  rebuildUserModified,
+  markDefaultAlgorithmFields,
 })
 
-type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | ''
+type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'default algorithm rule' | 'user' | ''
 
 /** 提交来源与页面“来源”列保持一致，供 Qt 保存后在 C 页面还原。 */
 function submittedFieldSource(field: string): SubmittedFieldSource {
@@ -418,6 +425,7 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
   if (source === 'ai' || source === 'cam') return source
   if (source === 'user') return 'user'
   if (source === 'system default') return 'system default'
+  if (source === 'default algorithm rule') return 'default algorithm rule'
   if (systemDefaultFields.has(field)) return 'system default'
   if (source === 'server default' || hasDefault(field)) return 'server default'
   return 'user'
@@ -427,10 +435,12 @@ function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r|
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
-async function applyFieldData(data: Record<string, any>) {
+async function applyFieldData(data: Record<string, any>, fallbackData?: Record<string, any>) {
   // 备注仅由页面规则生成，不接收 Qt/后端候选数据，也不参与来源冲突处理。
   const sourceData = { ...data }
   delete sourceData.remark
+  const stackupList = extractStackupList(data) ?? extractStackupList(fallbackData)
+  const impedanceList = extractImpedanceList(data) ?? extractImpedanceList(fallbackData)
   await applyFieldSourceData(sourceData, (usesCandidateArrays) => {
     // 新数组协议严格按候选条数展示；旧协议继续保留原来的材料和铜厚补全规则。
     if (!usesCandidateArrays) {
@@ -439,6 +449,19 @@ async function applyFieldData(data: Record<string, any>) {
     }
     syncPrevMaterial()
   })
+  const layerCount = Number(form.layerCount)
+  const canGenerate = fieldSource.layerCount !== 'conflict'
+    && Number.isInteger(layerCount)
+    && layerCount > 0
+    && (layerCount <= 2 || layerCount % 2 === 0)
+
+  if (stackupList?.length) applyStackupRows(stackupList)
+  else if (canGenerate) generateStackup(layerCount, stackupScheme.value)
+  else stackupRows.value = []
+
+  if (impedanceList?.length) applyImpedanceRows(impedanceList)
+  else if (canGenerate) generateImpedance(layerCount)
+  else impRows.value = []
 }
 
 // 外形公差提交格式：数字 → "+/-X.XXmm"
@@ -473,8 +496,10 @@ function submitForm() {
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
   params['drillDenstity'] = computedDrillDensity.value
-  // if (stackupRows.value.length) params['stackupList'] = stackupRows.value
-  // if (impRows.value.length) params['impList'] = impRows.value
+  const stackupTable = serializeStackupRows(stackupRows.value)
+  if (stackupTable.length) params['stackupTable'] = stackupTable
+  const impedanceTable = serializeImpedanceRows(impRows.value)
+  if (impedanceTable.length) params['impedanceTable'] = impedanceTable
   const payload = { taskId: taskId.value, pcbQuoteParams: params }
   const win = window as any
   // console.debug('[我→QT] 报价请求', { taskId: taskId.value, fieldCount: Object.keys(params).length })
@@ -543,9 +568,11 @@ function submitOrder() {
     const val = key === 'dimensionTolerance' ? formatDimensionTolerance() : form[key]
     params[key] = { ...(raw || {}), value: val, source: src }
   }
-  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'ai' }
-  // if (stackupRows.value.length) params['stackupList'] = { value: stackupRows.value, source: 'user' }
-  // if (impRows.value.length) params['impList'] = { value: impRows.value, source: 'user' }
+  params['drillDenstity'] = { value: computedDrillDensity.value, source: 'default algorithm rule' }
+  const stackupTable = serializeStackupRows(stackupRows.value)
+  if (stackupTable.length) params['stackupTable'] = { value: stackupTable, source: 'user' }
+  const impedanceTable = serializeImpedanceRows(impRows.value)
+  if (impedanceTable.length) params['impedanceTable'] = { value: impedanceTable, source: 'user' }
   const payload = params
   const win = window as any
   console.debug('[我→QT] 订单请求', { fieldCount: Object.keys(params).length })
@@ -578,6 +605,8 @@ const {
   isComponentActive: () => componentActive,
   generatePayQr,
   formatDimensionTolerance,
+  getImpedancePayload: () => serializeImpedanceRows(impRows.value),
+  getStackupPayload: () => serializeStackupRows(stackupRows.value),
   reportError,
 })
 
@@ -736,7 +765,7 @@ async function handleQtMessage(event: Event) {
   const data = rawData?.Set && typeof rawData.Set === 'object' && !Array.isArray(rawData.Set)
     ? rawData.Set
     : rawData
-  await applyFieldData(data)
+  await applyFieldData(data, rawData)
   handleSizeBlur()
   formDataLoaded.value = true
   ElMessage.success('数据已同步')

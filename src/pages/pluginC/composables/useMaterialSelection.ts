@@ -3,13 +3,12 @@ import { materialRules, ppMap, versionDetailMap } from '../config/materials'
 
 interface MaterialSelectionOptions {
   form: Record<string, any>
-  fieldSource: Record<string, string>
-  userBaseline: Record<string, any>
   currentPpModel: { value: string }
+  markDefaultAlgorithmFields: (fields: string[]) => void
 }
 
 export function useMaterialSelection(options: MaterialSelectionOptions) {
-  const { form, fieldSource, userBaseline, currentPpModel } = options
+  const { form, currentPpModel, markDefaultAlgorithmFields } = options
 
   // 材料字段旧值：弹窗提示不可更改时回滚
   const prevMaterial: Record<string, any> = {
@@ -52,17 +51,10 @@ export function useMaterialSelection(options: MaterialSelectionOptions) {
     const version = form.materialVersion
     if (version && versionDetailMap[version]) {
       fillByVersion(version)
-      // 型号匹配带出的项：来源标记为 AI提参（不算用户改动，不显示用户确认）
-      ;['materialType','materialBrand','materialTg','halogenFree'].forEach(k => { fieldSource[k] = 'ai' })
+      markDefaultAlgorithmFields(['materialType','materialBrand','materialTg','halogenFree'])
       return
     }
     currentPpModel.value = ''
-  }
-  
-  // 补出的值：来源标 AI提参 + 同步基准（不算用户改动）
-  function markAiAndBaseline(k: string) {
-    fieldSource[k] = 'ai'
-    userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
   }
   
   // 外层完成铜厚度/外层基铜厚度互补规则：只传其一时按规则补另一个
@@ -78,13 +70,13 @@ export function useMaterialSelection(options: MaterialSelectionOptions) {
       const base = Number(form.outerBaseCopperThickness)
       if (Number.isFinite(base)) {
         form.outerCopperThickness = base + (base >= 35 ? 35 : 18)
-        markAiAndBaseline('outerCopperThickness')
+        markDefaultAlgorithmFields(['outerCopperThickness'])
       }
     } else if (doneGiven && !baseGiven) {
       const done = Number(form.outerCopperThickness)
       if (Number.isFinite(done)) {
         form.outerBaseCopperThickness = done >= 70 ? done - 35 : done < 56 ? done - 18 : done
-        markAiAndBaseline('outerBaseCopperThickness')
+        markDefaultAlgorithmFields(['outerBaseCopperThickness'])
       }
     }
   }
@@ -124,8 +116,10 @@ export function useMaterialSelection(options: MaterialSelectionOptions) {
       form.materialBrand = d.brand
       form.materialTg = d.tg === '高TG'
       form.halogenFree = d.halogen
+      markDefaultAlgorithmFields(['materialBrand','materialTg','halogenFree'])
     } else {
       fillByVersion(version)
+      markDefaultAlgorithmFields(['materialType','materialBrand','materialTg','halogenFree'])
     }
     syncPrevMaterial()
   }

@@ -24,6 +24,7 @@
 .plugin-c-page .badge.empty { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
 .plugin-c-page .badge.empty:empty { display: none; }
 .plugin-c-page .badge.user { background: #f0faf2; color: #00b42a; border: 1px solid #b7ebc2; }
+.plugin-c-page .badge.algorithm { background: #f5f5f5; color: #606266; border: 1px solid #dcdfe6; }
 .plugin-c-page .td-src { text-align: center; }
 .plugin-c-page .td-view { text-align: center; }
 

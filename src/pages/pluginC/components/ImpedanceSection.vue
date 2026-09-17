@@ -23,6 +23,7 @@ const {
           <el-table-column label="线铜(mil)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.lineToCopper" :min="1" :max="100" :precision="2" size="small" style="width:100%" /></template></el-table-column>
           <el-table-column label="阻抗(ohm)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTarget" :min="1" :max="200" :precision="2" size="small" style="width:100%" /></template></el-table-column>
           <el-table-column label="公差(%)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impTol" :min="1" :max="50" :precision="1" size="small" style="width:100%" /></template></el-table-column>
+          <el-table-column label="公差(ohm)"><template #default="{ row }"><el-input-number :controls="false" v-model="row.impOhmTol" :min="0" :max="200" :precision="2" size="small" style="width:100%" /></template></el-table-column>
           <el-table-column label="操作" width="130" align="center"><template #default="{ $index }"><el-button size="small" type="primary" link @click="insertImpRow($index)">新增</el-button><el-button size="small" type="danger" link @click="impRows.splice($index,1)">删除</el-button></template></el-table-column>
         </el-table>
         <div v-if="impRows.length === 0" style="padding:6px 0"><button class="btn-add-row" @click="addImpRow">+ 新增一行</button></div>

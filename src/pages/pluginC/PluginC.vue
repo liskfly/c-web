@@ -29,6 +29,8 @@ import { useMaterialSelection } from './composables/useMaterialSelection'
 import { resolveDeeplineToken } from './domain/deepline'
 import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 import { runtimeConfig } from '@/config/runtimeConfig'
+import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
+import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -62,8 +64,8 @@ function fieldBgClass(f: string): string {
   const src = fieldSource[f]
   if (src === 'ai') cls = 'bg-green'
   else if (src === 'cam') cls = 'bg-orange'
-  // 服务端默认、系统默认均使用白色背景
-  else if (src === 'server default' || src === 'system default') cls = ''
+  // 服务端默认、系统默认、默认算法规则均使用白色背景
+  else if (src === 'server default' || src === 'system default' || src === 'default algorithm rule') cls = ''
   else if (!hasDefault(f)) {
     // 板材品牌/板材型号：无来源时默认浅灰（可选项，非必填）
     cls = (f === 'materialBrand' || f === 'materialVersion') ? 'bg-light-gray' : 'bg-light-red'
@@ -95,6 +97,17 @@ function rebuildUserModified() {
   }
   userModifiedFields.value = next
 }
+
+/** 将页面公式或联动生成的字段标记为默认算法规则，并作为新的用户修改基准。 */
+function markDefaultAlgorithmFields(fields: string[]) {
+  for (const field of fields) {
+    fieldSource[field] = 'default algorithm rule'
+    delete fieldRawData[field]
+    userBaseline[field] = JSON.parse(JSON.stringify(form[field]))
+  }
+  if (!applyingData) rebuildUserModified()
+}
+
 watch(form, () => {
   if (applyingData) return
   rebuildUserModified()
@@ -119,8 +132,9 @@ const {
   showEnigGold,
   showGoldFinger,
   hasInnerLayer,
+  collectP10Reasons,
   computedDrillDensity,
-} = useP10Rules(form)
+} = useP10Rules(form, markDefaultAlgorithmFields)
 
 // ==================== 自动补全 ====================
 const {
@@ -150,6 +164,8 @@ const {
   addStackupRow,
   insertStackupRow,
   onMaterialChange,
+  applyStackupRows,
+  generateStackup,
   impRows,
   impTypes,
   layerOptions,
@@ -158,6 +174,8 @@ const {
   validateRefLayer,
   addImpRow,
   insertImpRow,
+  applyImpedanceRows,
+  generateImpedance,
 } = useBoardStructure(form, currentPpModel)
 
 // ==================== 提交 ====================
@@ -280,7 +298,7 @@ const fieldRawData = reactive<Record<string, any>>({})
 const rawEventData = ref<any>(null)
 const systemDefaultFields = new Set(['pcbFile', 'quantity'])
 
-type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'user' | ''
+type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'default algorithm rule' | 'user' | ''
 
 /** Qt 审核参数中的来源与页面来源列保持一致。 */
 function submittedFieldSource(field: string): SubmittedFieldSource {
@@ -290,6 +308,7 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
   if (source === 'ai' || source === 'cam') return source
   if (source === 'user') return 'user'
   if (source === 'system default') return 'system default'
+  if (source === 'default algorithm rule') return 'default algorithm rule'
   if (systemDefaultFields.has(field)) return 'system default'
   if (source === 'server default' || hasDefault(field)) return 'server default'
   return 'user'
@@ -297,9 +316,7 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
 
 const { handleSizeBlur, requestPCSSize, requestSetSize } = usePanelSize({
   form,
-  fieldSource,
-  userBaseline,
-  rebuildUserModified,
+  markDefaultAlgorithmFields,
 })
 
 const {
@@ -315,9 +332,8 @@ const {
   onMaterialHalogenChange,
 } = useMaterialSelection({
   form,
-  fieldSource,
-  userBaseline,
   currentPpModel,
+  markDefaultAlgorithmFields,
 })
 
 function sourceLabel(f: string): string {
@@ -329,6 +345,7 @@ function sourceLabel(f: string): string {
   if (s==='cam') return 'CAM提参'
   if (s === 'user') return '用户确认'
   if (s === 'system default') return '系统默认'
+  if (s === 'default algorithm rule') return '默认算法规则'
   if (systemDefaultFields.has(f)) return '系统默认'
   // 服务端默认 / 有默认值但未传来源 → 默认行业标准；无默认值无来源 → 空白
   if (s==='server default' || hasDefault(f)) return '默认行业标准'
@@ -341,13 +358,31 @@ function sourceClass(f: string): string {
   if (s==='ai') return 'badge ai'
   if (s==='cam') return 'badge extracted'
   if (s === 'user') return 'badge user'
+  if (s === 'default algorithm rule') return 'badge algorithm'
   return 'badge empty'
 }
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
-function applyFieldData(data: Record<string, any>) {
+function applyReturnedStructureRows(stackupList: unknown[] | null, impedanceList: unknown[] | null) {
+  const layerCount = Number(form.layerCount)
+  const canGenerate = Number.isInteger(layerCount)
+    && layerCount > 0
+    && (layerCount <= 2 || layerCount % 2 === 0)
+
+  if (stackupList?.length) applyStackupRows(stackupList)
+  else if (canGenerate) generateStackup(layerCount, stackupScheme.value)
+  else stackupRows.value = []
+
+  if (impedanceList?.length) applyImpedanceRows(impedanceList)
+  else if (canGenerate) generateImpedance(layerCount)
+  else impRows.value = []
+}
+
+async function applyFieldData(data: Record<string, any>) {
+  const stackupList = extractStackupList(data)
+  const impedanceList = extractImpedanceList(data)
   const boolF=['blindVia','acceptXOut','materialTg','halogenFree','impedanceControl','confirmProductionFile']
   const numF=['boardThickness','outerCopperThickness','outerBaseCopperThickness','innerCopperThickness','holeCopperThickness','enigGoldThickness','goldFingerThickness']
   const arrF=['markingRequirements','testRequirements','shippingReports','specialProcesses']
@@ -373,6 +408,8 @@ function applyFieldData(data: Record<string, any>) {
     if (k in form) userBaseline[k] = JSON.parse(JSON.stringify(form[k]))
   }
   rebuildUserModified()
+  await nextTick()
+  applyReturnedStructureRows(stackupList, impedanceList)
 }
 
 function validateForm(): boolean {
@@ -400,8 +437,10 @@ async function submitForm() {
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = form[k] })
   params['drillDenstity'] = computedDrillDensity.value
-  if (stackupRows.value.length) params['stackupTable'] = stackupRows.value
-  if (impRows.value.length) params['impedanceTable'] = impRows.value
+  const stackupTable = serializeStackupRows(stackupRows.value)
+  if (stackupTable.length) params['stackupTable'] = stackupTable
+  const impedanceTable = serializeImpedanceRows(impRows.value)
+  if (impedanceTable.length) params['impedanceTable'] = impedanceTable
   try {
     const quoteRequest = deeplineMode.value ? getQuoteInfoOfflinePure : getQuoteInfoOffline
     const res: any = await quoteRequest({ taskId: taskId.value, pcbQuoteParams: params })
@@ -434,15 +473,18 @@ async function submitOrder() {
       const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
       params[key] = { ...rawRecord, value: form[key], source: submittedFieldSource(key) }
     } else {
-      params[key] = { value: form[key], source: 'user' }
+      const source = fieldSource[key] === 'default algorithm rule' ? 'default algorithm rule' : 'user'
+      params[key] = { value: form[key], source }
     }
   }
   params['drillDenstity'] = {
     value: computedDrillDensity.value,
-    source: deeplineMode.value ? 'ai' : 'computed',
+    source: 'default algorithm rule',
   }
-  if (!deeplineMode.value && stackupRows.value.length) params['stackupTable'] = { value: stackupRows.value, source: 'user' }
-  if (!deeplineMode.value && impRows.value.length) params['impedanceTable'] = { value: impRows.value, source: 'user' }
+  const stackupTable = serializeStackupRows(stackupRows.value)
+  if (stackupTable.length) params['stackupTable'] = { value: stackupTable, source: 'user' }
+  const impedanceTable = serializeImpedanceRows(impRows.value)
+  if (impedanceTable.length) params['impedanceTable'] = { value: impedanceTable, source: 'user' }
   const payload = params
   const win = window as any
   console.log('[我→QT] 订单请求', { fieldCount: Object.keys(payload).length })
@@ -574,12 +616,14 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
   pollTimer = window.setInterval(() => { void pollPayStatus() }, 1000)
 }
 
-function orderPayload(includeStructureTables = true) {
+function orderPayload() {
   const p: Record<string, any> = {}
   Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
   p['drillDenstity'] = computedDrillDensity.value
-  if (includeStructureTables && stackupRows.value.length) p['stackupTable'] = stackupRows.value
-  if (includeStructureTables && impRows.value.length) p['impedanceTable'] = impRows.value
+  const stackupTable = serializeStackupRows(stackupRows.value)
+  if (stackupTable.length) p['stackupTable'] = stackupTable
+  const impedanceTable = serializeImpedanceRows(impRows.value)
+  if (impedanceTable.length) p['impedanceTable'] = impedanceTable
   return p
 }
 
@@ -598,14 +642,17 @@ async function completeDeeplineReview() {
   qrOrderNo.value = ''
 
   try {
+    const auditReasons = collectP10Reasons()
     const modelRes: any = await pcbModelIdCreate(userToken.value, {
       task_id: taskId.value,
       receiver_id: 1,
       invoice_id: 1,
       invoice_type: 1,
       freight_price: 0,
-      // 与 A 页面 OrderCreate 的 pcbQuoteParams 一致，不额外上传叠层/阻抗表。
-      pcbQuoteParams: orderPayload(false),
+      task_audit_status: auditReasons.length ? 0 : 1,
+      ...(auditReasons.length ? { audit_control_reasons: auditReasons.join('') } : {}),
+      // 与 A 页面 OrderCreate 的 pcbQuoteParams 一致，叠构/阻抗使用 stackupTable、impedanceTable。
+      pcbQuoteParams: orderPayload(),
     })
     if (!componentActive || !orderWorkflowPending) return
     if (!isSuccessfulResponse(modelRes)) {
@@ -692,7 +739,7 @@ async function handleQtMessage(event: Event) {
     tokenReady.value = Boolean(taskId.value)
     if (!tokenReady.value) { ElMessage.error('未获取到有效 TaskId'); return }
     if (deeplineMode.value) {
-      applyFieldData(tokenContext.parameters)
+      await applyFieldData(tokenContext.parameters)
       handleSizeBlur()
       formDataLoaded.value = true
       quoteData.value = null
@@ -841,7 +888,7 @@ async function handleQtMessage(event: Event) {
 
   // 表单数据
   const data = detail.parameters || detail
-  applyFieldData(data)
+  await applyFieldData(data)
   handleSizeBlur()
   formDataLoaded.value = true
   ElMessage.success('数据已同步')
@@ -892,6 +939,10 @@ async function loadQuoteParamsFromApi() {
         if (key in form) userBaseline[key] = JSON.parse(JSON.stringify(form[key]))
       }
       rebuildUserModified()
+      await nextTick()
+      const stackupList = extractStackupList(data)
+      const impedanceList = extractImpedanceList(data)
+      applyReturnedStructureRows(stackupList, impedanceList)
       formDataLoaded.value = true
       handleSizeBlur()
       // 获取旧报价

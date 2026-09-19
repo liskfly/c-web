@@ -380,7 +380,7 @@ const {
   sourceClass,
   sourceOptions,
   showSourceOptionValues,
-  selectSource,
+  selectSource: applySelectedSource,
   markDefaultAlgorithmFields,
   applyFieldData: applyFieldSourceData,
 } = useFieldSources({
@@ -414,6 +414,18 @@ const { handleSizeBlur } = usePanelSize({
   form,
   markDefaultAlgorithmFields,
 })
+
+const PANEL_SIZE_SOURCE_FIELDS = new Set([
+  'pcsSizeWidth',
+  'pcsSizeHeight',
+  'setSizeWidth',
+  'setSizeHeight',
+])
+
+async function selectSource(field: string, optionId: string) {
+  await applySelectedSource(field, optionId)
+  if (PANEL_SIZE_SOURCE_FIELDS.has(field)) handleSizeBlur()
+}
 
 type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'default algorithm rule' | 'user' | ''
 

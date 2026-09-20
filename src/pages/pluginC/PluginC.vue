@@ -42,6 +42,12 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
 const remarkVisible = runtimeConfig.pluginCRemarkVisible
 
+// ==================== 数据来源追踪 ====================
+const fieldSource = reactive<Record<string, string>>({})
+const fieldRawData = reactive<Record<string, any>>({})
+const rawEventData = ref<any>(null)
+const systemDefaultFields = new Set(['pcbFile', 'quantity'])
+
 const userModifiedFields = ref<Set<string>>(new Set())
 let applyingData = false
 
@@ -101,7 +107,8 @@ function rebuildUserModified() {
 /** 将页面公式或联动生成的字段标记为默认算法规则，并作为新的用户修改基准。 */
 function markDefaultAlgorithmFields(fields: string[]) {
   for (const field of fields) {
-    fieldSource[field] = 'default algorithm rule'
+    if (hasFieldValue(field)) fieldSource[field] = 'default algorithm rule'
+    else delete fieldSource[field]
     delete fieldRawData[field]
     userBaseline[field] = JSON.parse(JSON.stringify(form[field]))
   }
@@ -129,6 +136,7 @@ opts.materialTg = [{ value: false, label: '中TG' }, { value: true, label: '高T
 const {
   showPanelFields,
   requireClientPanelSeparation,
+  syncDeliveryUnit,
   showEnigGold,
   showGoldFinger,
   hasInnerLayer,
@@ -292,12 +300,6 @@ function normalizeExpireTimestamp(value: unknown): number {
 
 const labelMap = fieldLabels
 
-// ==================== 数据来源追踪 ====================
-const fieldSource = reactive<Record<string, string>>({})
-const fieldRawData = reactive<Record<string, any>>({})
-const rawEventData = ref<any>(null)
-const systemDefaultFields = new Set(['pcbFile', 'quantity'])
-
 type SubmittedFieldSource = 'ai' | 'cam' | 'server default' | 'system default' | 'default algorithm rule' | 'user' | ''
 
 /** Qt 审核参数中的来源与页面来源列保持一致。 */
@@ -400,6 +402,8 @@ async function applyFieldData(data: Record<string, any>) {
   applyMaterialPriorityRules()
   // 外层完成铜/基铜互补规则
   applyCopperRules(data)
+  // 交货单位只取决于最终的拼板方式，不采纳外部独立传值。
+  syncDeliveryUnit()
   applyingData = false
   // 以本次同步后的值作为新基准：Qt/AI 回传的值（含型号匹配带出的材料项）不算用户改动
   const baselineKeys = new Set(Object.keys(data))
@@ -712,6 +716,8 @@ function resetToInitialState() {
     if (defaults[k] !== undefined) form[k] = defaults[k]
     else if (Array.isArray(form[k])) form[k] = []
   }
+  // refreshShow 表示重新等待数据，恢复真正的空初始值。
+  form.deliveryUnit = ''
   applyingData = false
   for (const k of Object.keys(fieldSource)) delete fieldSource[k]
   for (const k of Object.keys(fieldRawData)) delete fieldRawData[k]
@@ -931,6 +937,8 @@ async function loadQuoteParamsFromApi() {
       applyMaterialPriorityRules()
       // 外层完成铜/基铜互补规则
       applyCopperRules(data)
+      // 交货单位只取决于最终的拼板方式，不采纳接口中的独立传值。
+      syncDeliveryUnit()
       applyingData = false
       // 以本次 API 回填后的值作为新基准：服务端回填（含型号匹配带出的材料项）不算用户改动
       const baselineKeys = new Set(Object.keys(data))

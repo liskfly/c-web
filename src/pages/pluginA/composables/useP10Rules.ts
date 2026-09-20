@@ -8,13 +8,22 @@ export function useP10Rules(
   const showPanelFields = computed(() => form.setMethod === '客户拼板')
   // 外形要求：客户拼板/单片加工艺边 时必填，其他情况非必填
   const requireClientPanelSeparation = computed(() => form.setMethod === '客户拼板' || form.setMethod === '单片加工艺边')
-  // 单片无拼板时清空外形要求；客户拼板/单片加工艺边时默认 拼板+V-CUT交货
+
+  function syncDeliveryUnit() {
+    if (form.setMethod === '客户拼板') form.deliveryUnit = 'SET'
+    else if (form.setMethod === '单片无拼板' || form.setMethod === '单片加工艺边') form.deliveryUnit = 'PCS'
+    else form.deliveryUnit = ''
+    markDefaultAlgorithmFields?.(['deliveryUnit'])
+  }
+
+  // 拼板方式决定交货单位及外形要求。
   watch(() => form.setMethod, (val) => {
+    syncDeliveryUnit()
     if (val === '单片无拼板') form.clientPanelSeparation = ''
     else if (val === '客户拼板' || val === '单片加工艺边') form.clientPanelSeparation = '拼板+V-CUT交货'
     else return
     markDefaultAlgorithmFields?.(['clientPanelSeparation'])
-  })
+  }, { flush: 'sync' })
   const showEnigGold = computed(() => form.surfaceFinish === '沉金')
   const showGoldFinger = computed(() => form.goldFingerType !== '无')
   const hasInnerLayer = computed(() => Number(form.layerCount) > 2)
@@ -354,6 +363,7 @@ export function useP10Rules(
   return {
     showPanelFields,
     requireClientPanelSeparation,
+    syncDeliveryUnit,
     showEnigGold,
     showGoldFinger,
     hasInnerLayer,

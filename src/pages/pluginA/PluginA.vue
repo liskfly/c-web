@@ -403,6 +403,7 @@ const {
 const {
   showPanelFields,
   requireClientPanelSeparation,
+  syncDeliveryUnit,
   showEnigGold,
   showGoldFinger,
   hasInnerLayer,
@@ -461,6 +462,8 @@ async function applyFieldData(data: Record<string, any>, fallbackData?: Record<s
     }
     syncPrevMaterial()
   })
+  // 交货单位只取决于最终的拼板方式，不采纳外部独立传值。
+  syncDeliveryUnit()
   const layerCount = Number(form.layerCount)
   const canGenerate = fieldSource.layerCount !== 'conflict'
     && Number.isInteger(layerCount)

@@ -2,7 +2,7 @@
 
 export const initialForm: Record<string, any> = {
   pcbName: "", pcbFile: "", layerCount: null, blindVia: false,
-  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
+  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
   materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: true, halogenFree: false,
@@ -22,7 +22,7 @@ export const initialForm: Record<string, any> = {
 
 export const defaultValues: Record<string, any> = JSON.parse(JSON.stringify({
   pcbName: "", pcbFile: "", layerCount: null, blindVia: false,
-  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "PCS",
+  pcsSizeWidth: null, pcsSizeHeight: null, dimensionTolerance: "+/-0.10mm", quantity: 10, deliveryUnit: "",
   panelTypesCount: 1, setMethod: "单片无拼板", clientPanelHorizontal: 1, clientPanelVertical: 1,
   setSizeWidth: null, setSizeHeight: null, clientPanelSeparation: "拼板+V-CUT交货", acceptXOut: false,
   materialType: "FR4", materialBrand: "", materialVersion: "", materialTg: true, halogenFree: false,

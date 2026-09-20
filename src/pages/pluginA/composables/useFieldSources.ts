@@ -202,7 +202,8 @@ export function useFieldSources(options: FieldSourceOptions) {
   /** 将页面公式或联动生成的字段标记为默认算法规则，并作为新的用户修改基准。 */
   function markDefaultAlgorithmFields(fields: string[]) {
     for (const field of fields) {
-      fieldSource[field] = 'default algorithm rule'
+      if (hasFieldValue(field)) fieldSource[field] = 'default algorithm rule'
+      else delete fieldSource[field]
       delete fieldRawData[field]
       delete selectedSourceValues[field]
       userBaseline[field] = cloneFieldValue(form[field])

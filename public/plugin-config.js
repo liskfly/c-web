@@ -5,8 +5,8 @@
 window.__AUTOLIB_RUNTIME_CONFIG__ = {
   // true：使用候选数组的冲突版本；false：使用单对象的非冲突版本。
   pluginAConflictMode: true,
-  // true：显示 A 页面备注栏；false：隐藏备注栏（不影响 P10 校验和提交）。
+  // true：在 A 页面备注栏显示 P10 提示；false：仅隐藏 P10 提示（接口返回的 remark 始终显示和传递）。
   pluginARemarkVisible: true,
-  // true：显示 C 页面备注栏；false：隐藏备注栏（不影响 C 页 P10 判断）。
+  // true：在 C 页面备注栏显示 P10 提示；false：仅隐藏 P10 提示（接口返回的 remark 始终显示和传递）。
   pluginCRemarkVisible: true,
 }

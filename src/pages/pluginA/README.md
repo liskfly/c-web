@@ -32,8 +32,8 @@ window.__AUTOLIB_RUNTIME_CONFIG__ = {
 - `true`：使用候选数组协议，开启多来源冲突判断、粉色冲突背景和来源候选下拉。
 - `false`：使用单对象协议，关闭冲突提示和来源下拉，不从候选数组中默认选择数据。
 
-`pluginARemarkVisible` 控制 A 页面备注栏：`true` 显示，`false` 隐藏。隐藏只影响页面展示，不影响 P10 校验、审核状态和提交参数。
+`pluginARemarkVisible` 现在只控制 A 页面备注栏中的 P10 提示：`true` 显示，`false` 隐藏。接口返回的 `remark` 始终接收、显示和回传；回传的 `remark` 不包含页面生成的 P10 提示。
 
-`pluginCRemarkVisible` 独立控制 C 页面备注栏：`true` 显示，`false` 隐藏。
+`pluginCRemarkVisible` 独立控制 C 页面备注栏中的 P10 提示，规则与 A 页面一致。
 
 修改配置后刷新或重新打开页面即可生效，无需重新打包。配置文件缺失或配置值无效时默认开启冲突模式。

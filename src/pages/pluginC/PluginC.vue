@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, reactive, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import ParameterForm from './components/ParameterForm.vue'
 import StackupSection from './components/StackupSection.vue'
 import ImpedanceSection from './components/ImpedanceSection.vue'
@@ -31,6 +31,7 @@ import { isThicknessToleranceFormatValid } from './domain/thicknessTolerance'
 import { runtimeConfig } from '@/config/runtimeConfig'
 import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
 import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
+import { normalizeRemarks } from '@/utils/remarkData'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -40,7 +41,17 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
-const remarkVisible = runtimeConfig.pluginCRemarkVisible
+const p10RemarkVisible = runtimeConfig.pluginCRemarkVisible
+const receivedRemarks = ref<string[]>([])
+const displayedRemarks = computed(() => [
+  ...receivedRemarks.value,
+  ...(p10RemarkVisible
+    ? form.remark.map((message: unknown) => {
+      const text = String(message)
+      return text.includes('|') ? text.split('|').slice(1).join('|') : text
+    })
+    : []),
+])
 
 // ==================== 数据来源追踪 ====================
 const fieldSource = reactive<Record<string, string>>({})
@@ -383,6 +394,8 @@ function applyReturnedStructureRows(stackupList: unknown[] | null, impedanceList
 }
 
 async function applyFieldData(data: Record<string, any>) {
+  // 接口备注与页面生成的 P10 提示分开保存，避免 P10 内容随 remark 回传。
+  receivedRemarks.value = normalizeRemarks(data.remark)
   const stackupList = extractStackupList(data)
   const impedanceList = extractImpedanceList(data)
   const boolF=['blindVia','acceptXOut','materialTg','halogenFree','impedanceControl','confirmProductionFile']
@@ -390,6 +403,7 @@ async function applyFieldData(data: Record<string, any>) {
   const arrF=['markingRequirements','testRequirements','shippingReports','specialProcesses']
   applyingData = true
   for(const k of Object.keys(data)) {
+    if(k === 'remark') continue
     if(!(k in form)) continue
     const e=data[k]; const v = k === 'immersionGoldArea' ? (e?.ratio ?? e?.[k] ?? e) : (e?.value ?? e?.[k] ?? e); const s=e?.source??''
     if(boolF.includes(k)) form[k]=toBoolean(v)
@@ -440,6 +454,7 @@ async function submitForm() {
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = form[k] })
+  params.remark = [...receivedRemarks.value]
   params['drillDenstity'] = computedDrillDensity.value
   const stackupTable = serializeStackupRows(stackupRows.value)
   if (stackupTable.length) params['stackupTable'] = stackupTable
@@ -481,6 +496,7 @@ async function submitOrder() {
       params[key] = { value: form[key], source }
     }
   }
+  params.remark = { value: [...receivedRemarks.value], source: '' }
   params['drillDenstity'] = {
     value: computedDrillDensity.value,
     source: 'default algorithm rule',
@@ -623,6 +639,7 @@ function startPollPayStatus(mergeNo: string, expireTimestamp: number) {
 function orderPayload() {
   const p: Record<string, any> = {}
   Object.keys(form).forEach(k => { if (k !== "remark") p[k] = form[k] })
+  p.remark = [...receivedRemarks.value]
   p['drillDenstity'] = computedDrillDensity.value
   const stackupTable = serializeStackupRows(stackupRows.value)
   if (stackupTable.length) p['stackupTable'] = stackupTable
@@ -709,6 +726,7 @@ function resetToInitialState() {
   userUid.value = ''
   tokenReady.value = false
   formDataLoaded.value = false
+  receivedRemarks.value = []
   deeplineMode.value = false
   applyingData = true
   const defaults = JSON.parse(JSON.stringify(DEFAULT_VALUES))
@@ -909,8 +927,10 @@ async function loadQuoteParamsFromApi() {
     if (deeplineMode.value || requestTaskId !== taskId.value) return
     if (res.code === 200 && res.data) {
       const data = res.data
+      receivedRemarks.value = normalizeRemarks(data.remark)
       applyingData = true
       for (const key of Object.keys(form)) {
+        if (key === 'remark') continue
         // 同时兼容旧的纯值和 A 页面上传的 { value, source } 结构。
         if (!(key in data)) continue
         const entry = data[key]
@@ -974,7 +994,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, remarkVisible, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
+  form, sections, opts, displayedRemarks, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,

@@ -16,6 +16,7 @@ interface PaymentFlowOptions {
   formatDimensionTolerance: () => string
   getImpedancePayload: () => ImpedancePayloadRow[]
   getStackupPayload: () => StackupPayloadRow[]
+  getRemarkPayload: () => string[]
   reportError: (context: string, error: unknown, message: string, source?: ErrorSource) => void
 }
 
@@ -29,7 +30,7 @@ function normalizeExpireTimestamp(value: unknown): number {
 export function usePaymentFlow(options: PaymentFlowOptions) {
   const {
     form, taskId, userToken, computedDrillDensity, isComponentActive,
-    generatePayQr, formatDimensionTolerance, getImpedancePayload, getStackupPayload, reportError,
+    generatePayQr, formatDimensionTolerance, getImpedancePayload, getStackupPayload, getRemarkPayload, reportError,
   } = options
 
   const qrVisible = ref(false); const qrCodeUrl = ref(''); const qrExpired = ref(false); const qrCountdown = ref(0); const qrOrderNo = ref(''); const qrRefreshing = ref(false)
@@ -152,6 +153,7 @@ export function usePaymentFlow(options: PaymentFlowOptions) {
   function orderPayload() {
     const p: Record<string, any> = {}
     Object.keys(form).forEach(k => { if (k !== "remark") p[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
+    p.remark = getRemarkPayload()
     p['drillDenstity'] = computedDrillDensity.value
     const stackupTable = getStackupPayload()
     if (stackupTable.length) p['stackupTable'] = stackupTable

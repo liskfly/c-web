@@ -23,6 +23,6 @@
 - Qt 的 `token` 消息不含 `deepline_user_info`：继续通过线上接口加载参数，并走原订单/支付流程。
 - Qt 的 `token` 消息含 `deepline_user_info`：直接使用其中的 PCB 参数，不请求线上参数接口；报价调用 `getQuoteInfoOfflinePure`，提交审核后等待 Qt 返回 `reviewed`，再依次调用 `PCBModelIDCreate` 和 `UpdateOrderStatus`。
 
-## 打包后控制备注栏
+## 打包后控制 P10 备注
 
-构建产物根目录的 `plugin-config.js` 中，`pluginCRemarkVisible: true` 显示 C 页面备注栏，改成 `false` 后隐藏。修改配置后刷新或重新打开页面即可，不需要重新打包；隐藏只影响展示，不影响 P10 判断。
+构建产物根目录的 `plugin-config.js` 中，`pluginCRemarkVisible: true` 显示 C 页面备注栏中的 P10 提示，改成 `false` 后只隐藏 P10 提示。接口返回的 `remark` 始终接收、显示和回传，且回传时不会混入页面生成的 P10 提示。修改配置后刷新或重新打开页面即可，不需要重新打包。

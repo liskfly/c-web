@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted, onUnmounted } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
 import InvoiceSection from './components/InvoiceSection.vue'
 import DeliverySection from './components/DeliverySection.vue'
 import ParameterForm from './components/ParameterForm.vue'
@@ -24,6 +24,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { wasErrorMessageShown, withErrorSource, type ErrorSource } from '@/utils/errorSource'
 import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
 import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
+import { normalizeRemarks } from '@/utils/remarkData'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true, invoice: true, delivery: true })
@@ -34,7 +35,17 @@ const form = reactive<Record<string, any>>(JSON.parse(JSON.stringify(initialForm
 // ==================== 字段状态颜色 ====================
 const DEFAULT_VALUES: Record<string, any> = JSON.parse(JSON.stringify(defaultValues))
 const conflictMode = runtimeConfig.pluginAConflictMode
-const remarkVisible = runtimeConfig.pluginARemarkVisible
+const p10RemarkVisible = runtimeConfig.pluginARemarkVisible
+const receivedRemarks = ref<string[]>([])
+const displayedRemarks = computed(() => [
+  ...receivedRemarks.value,
+  ...(p10RemarkVisible
+    ? form.remark.map((message: unknown) => {
+      const text = String(message)
+      return text.includes('|') ? text.split('|').slice(1).join('|') : text
+    })
+    : []),
+])
 
 // ==================== 选项 ====================
 const opts = JSON.parse(JSON.stringify(formOptions)) as Record<string, any[]>
@@ -449,7 +460,8 @@ function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.s
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
 async function applyFieldData(data: Record<string, any>, fallbackData?: Record<string, any>) {
-  // 备注仅由页面规则生成，不接收 Qt/后端候选数据，也不参与来源冲突处理。
+  // 接口备注与页面生成的 P10 提示分开保存，避免 P10 内容随 remark 回传。
+  receivedRemarks.value = normalizeRemarks(data.remark ?? fallbackData?.remark)
   const sourceData = { ...data }
   delete sourceData.remark
   const stackupList = extractStackupList(data) ?? extractStackupList(fallbackData)
@@ -510,6 +522,7 @@ function submitForm() {
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = k === 'dimensionTolerance' ? formatDimensionTolerance() : form[k] })
+  params.remark = [...receivedRemarks.value]
   params['drillDenstity'] = computedDrillDensity.value
   const stackupTable = serializeStackupRows(stackupRows.value)
   if (stackupTable.length) params['stackupTable'] = stackupTable
@@ -583,6 +596,7 @@ function submitOrder() {
     const val = key === 'dimensionTolerance' ? formatDimensionTolerance() : form[key]
     params[key] = { ...(raw || {}), value: val, source: src }
   }
+  params.remark = { value: [...receivedRemarks.value], source: '' }
   params['drillDenstity'] = { value: computedDrillDensity.value, source: 'default algorithm rule' }
   const stackupTable = serializeStackupRows(stackupRows.value)
   if (stackupTable.length) params['stackupTable'] = { value: stackupTable, source: 'user' }
@@ -622,6 +636,7 @@ const {
   formatDimensionTolerance,
   getImpedancePayload: () => serializeImpedanceRows(impRows.value),
   getStackupPayload: () => serializeStackupRows(stackupRows.value),
+  getRemarkPayload: () => [...receivedRemarks.value],
   reportError,
 })
 
@@ -798,7 +813,7 @@ const boardStructureContext = {
 }
 
 const parameterFormContext = {
-  form, sections, opts, conflictMode, remarkVisible, fieldBgClass, sourceClass, sourceLabel, sourceOptions, showSourceOptionValues, selectSource,
+  form, sections, opts, conflictMode, displayedRemarks, fieldBgClass, sourceClass, sourceLabel, sourceOptions, showSourceOptionValues, selectSource,
   showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,

@@ -5,7 +5,7 @@ import { ElAutocomplete, ElButton, ElInput, ElInputNumber, ElOption, ElSelect } 
 
 const props = defineProps<{ context: Record<string, any> }>()
 const {
-  form, sections, opts, remarkVisible, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
+  form, sections, opts, displayedRemarks, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,
@@ -18,7 +18,7 @@ const remarkBoxRef = ref<HTMLElement | null>(null)
 
 // Qt 页面区域高度有限，备注变化后滚到最新一条，历史内容仍可在框内滚动查看。
 watch(
-  () => form.remark.join('\n'),
+  () => displayedRemarks.value.join('\n'),
   async () => {
     await nextTick()
     const remarkBox = remarkBoxRef.value
@@ -40,6 +40,6 @@ watch(
             <tr><td>出货报告<span class="req">*</span></td><td :class="fieldBgClass('shippingReports')"><el-select v-model="form.shippingReports" size="large" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.shippingReports" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><SourceSelector field="shippingReports" :context="props.context" /></td><td class="td-view"><button v-if="showGraphicBtn('shippingReports')" class="btn-view graphic" @click="handleViewClick('shippingReports')">图形</button><button v-if="showDocBtn('shippingReports')" class="btn-view doc" @click="handleViewClick('shippingReports')">加工文档</button></td></tr>
             <tr><td>特殊工艺<span class="req">*</span></td><td :class="fieldBgClass('specialProcesses')"><el-select v-model="form.specialProcesses" size="large" multiple collapse-tags style="width:100%"><el-option v-for="v in opts.specialProcesses" :key="v" :label="v" :value="v" /></el-select></td><td class="td-src"><SourceSelector field="specialProcesses" :context="props.context" /></td><td class="td-view"><button v-if="showGraphicBtn('specialProcesses')" class="btn-view graphic" @click="handleViewClick('specialProcesses')">图形</button><button v-if="showDocBtn('specialProcesses')" class="btn-view doc" @click="handleViewClick('specialProcesses')">加工文档</button></td></tr>
             <tr><td>光绘确认<span class="req">*</span></td><td :class="fieldBgClass('confirmProductionFile')"><el-select v-model="form.confirmProductionFile" size="large" style="width:100%"><el-option v-for="v in opts.confirmProductionFile" :key="v.value" :label="v.label" :value="v.value" /></el-select></td><td class="td-src"><SourceSelector field="confirmProductionFile" :context="props.context" /></td><td class="td-view"><button v-if="showGraphicBtn('confirmProductionFile')" class="btn-view graphic" @click="handleViewClick('confirmProductionFile')">图形</button><button v-if="showDocBtn('confirmProductionFile')" class="btn-view doc" @click="handleViewClick('confirmProductionFile')">加工文档</button></td></tr>
-            <tr v-if="remarkVisible"><td colspan="4" class="remark-cell"><div class="remark-title">📝 备注</div><div ref="remarkBoxRef" class="remark-box"><template v-if="form.remark.length"><div v-for="(msg, i) in form.remark" :key="i" class="remark-item">{{ String(Number(i) + 1) }}. {{ (msg as string).includes('|') ? (msg as string).split('|').slice(1).join('|') : msg }}</div></template><template v-else><span class="remark-empty">暂无备注信息</span></template></div></td></tr>
+            <tr><td colspan="4" class="remark-cell"><div class="remark-title">📝 备注</div><div ref="remarkBoxRef" class="remark-box"><template v-if="displayedRemarks.length"><div v-for="(msg, i) in displayedRemarks" :key="i" class="remark-item">{{ String(Number(i) + 1) }}. {{ msg }}</div></template><template v-else><span class="remark-empty">暂无备注信息</span></template></div></td></tr>
           </template>
 </template>

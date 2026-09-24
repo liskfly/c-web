@@ -1,14 +1,20 @@
 import { ElMessageBox } from 'element-plus'
 import { materialRules, ppMap, versionDetailMap } from '../config/materials'
+import {
+  calculateOuterBaseCopperThickness,
+  calculateOuterFinishedCopperThickness,
+  hasProvidedCopperThickness,
+} from '@/utils/outerCopperThickness'
 
 interface MaterialSelectionOptions {
   form: Record<string, any>
   currentPpModel: { value: string }
   markDefaultAlgorithmFields: (fields: string[]) => void
+  isFieldResolved: (field: string) => boolean
 }
 
 export function useMaterialSelection(options: MaterialSelectionOptions) {
-  const { form, currentPpModel, markDefaultAlgorithmFields } = options
+  const { form, currentPpModel, markDefaultAlgorithmFields, isFieldResolved } = options
 
   // 材料字段旧值：弹窗提示不可更改时回滚
   const prevMaterial: Record<string, any> = {
@@ -57,28 +63,43 @@ export function useMaterialSelection(options: MaterialSelectionOptions) {
     currentPpModel.value = ''
   }
   
-  // 外层完成铜厚度/外层基铜厚度互补规则：只传其一时按规则补另一个
-  // 只有基铜：完成铜 = 基铜 + (>=35 ? 35 : 18)
-  // 只有完成铜：>=70 → 基铜 = 完成铜-35；<56 → 完成铜-18；56~70 → 相等
-  // 两个都传按传值；都没传按默认值
+  // 外层完成铜厚度/外层基铜厚度互补规则：只传其一时，先加减再匹配最近档位
+  // 两个都传或两个都没传时，不执行本规则
   function applyCopperRules(data: Record<string, any>) {
-    const baseRaw = data.outerBaseCopperThickness?.value ?? data.outerBaseCopperThickness
-    const doneRaw = data.outerCopperThickness?.value ?? data.outerCopperThickness
-    const baseGiven = baseRaw !== undefined && baseRaw !== null && baseRaw !== ''
-    const doneGiven = doneRaw !== undefined && doneRaw !== null && doneRaw !== ''
+    const baseGiven = hasProvidedCopperThickness(data.outerBaseCopperThickness)
+    const doneGiven = hasProvidedCopperThickness(data.outerCopperThickness)
     if (baseGiven && !doneGiven) {
       const base = Number(form.outerBaseCopperThickness)
-      if (Number.isFinite(base)) {
-        form.outerCopperThickness = base + (base >= 35 ? 35 : 18)
+      if (isFieldResolved('outerBaseCopperThickness') && form.outerBaseCopperThickness !== null && form.outerBaseCopperThickness !== '' && Number.isFinite(base)) {
+        form.outerCopperThickness = calculateOuterFinishedCopperThickness(base)
         markDefaultAlgorithmFields(['outerCopperThickness'])
       }
     } else if (doneGiven && !baseGiven) {
       const done = Number(form.outerCopperThickness)
-      if (Number.isFinite(done)) {
-        form.outerBaseCopperThickness = done >= 70 ? done - 35 : done < 56 ? done - 18 : done
+      if (isFieldResolved('outerCopperThickness') && form.outerCopperThickness !== null && form.outerCopperThickness !== '' && Number.isFinite(done)) {
+        form.outerBaseCopperThickness = calculateOuterBaseCopperThickness(done)
         markDefaultAlgorithmFields(['outerBaseCopperThickness'])
       }
     }
+  }
+
+  // 用户编辑后失焦时，使用当前字段重新计算另一个外层铜厚字段。
+  function onOuterBaseCopperThicknessBlur() {
+    const raw = form.outerBaseCopperThickness
+    if (raw === undefined || raw === null || raw === '') return
+    const base = Number(raw)
+    if (!Number.isFinite(base)) return
+    form.outerCopperThickness = calculateOuterFinishedCopperThickness(base)
+    markDefaultAlgorithmFields(['outerCopperThickness'])
+  }
+
+  function onOuterCopperThicknessBlur() {
+    const raw = form.outerCopperThickness
+    if (raw === undefined || raw === null || raw === '') return
+    const finished = Number(raw)
+    if (!Number.isFinite(finished)) return
+    form.outerBaseCopperThickness = calculateOuterBaseCopperThickness(finished)
+    markDefaultAlgorithmFields(['outerBaseCopperThickness'])
   }
   
   // 板材种类变化：已匹配板材型号时不可更改（混压板例外，可自由改）
@@ -179,6 +200,8 @@ export function useMaterialSelection(options: MaterialSelectionOptions) {
     syncPrevMaterial,
     applyMaterialPriorityRules,
     applyCopperRules,
+    onOuterCopperThicknessBlur,
+    onOuterBaseCopperThicknessBlur,
     onMaterialTypeChange,
     onMaterialVersionSelect,
     onMaterialVersionChange,

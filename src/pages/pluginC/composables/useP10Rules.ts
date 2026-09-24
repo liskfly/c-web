@@ -222,7 +222,7 @@ export function useP10Rules(
   watch(() => form.testRequirements, (val) => {
     const KEY = 'TEST_REQUIREMENTS_LIMIT'
     form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
-    const allowed = ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '不需要', '飞针测试', '夹具测试']
+    const allowed = ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '阻抗测试', '不需要', '飞针测试', '夹具测试']
     const list = Array.isArray(val) ? val : []
     const invalid = list.filter((v: string) => !allowed.includes(v))
     if (invalid.length) {
@@ -234,7 +234,7 @@ export function useP10Rules(
   watch(() => form.shippingReports, (val) => {
     const KEY = 'SHIPPING_REPORTS_LIMIT'
     form.remark = form.remark.filter((m: string) => !m.startsWith(KEY + '|'))
-    const allowed = ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '不需要']
+    const allowed = ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '阻抗测试报告', '不需要']
     const list = Array.isArray(val) ? val : []
     const invalid = list.filter((v: string) => !allowed.includes(v))
     if (invalid.length) {
@@ -317,9 +317,9 @@ export function useP10Rules(
     if (form.periodFormat && !['WWYY', 'YYWW', 'MMYY', 'YYMM', 'DDMMYY', 'YYMMDD'].includes(form.periodFormat)) add('周期格式', form.periodFormat)
 
     const listInvalid = (value: any, allowed: string[]) => Array.isArray(value) ? (value as string[]).filter((item: string) => !allowed.includes(item)) : []
-    const testInvalid = listInvalid(form.testRequirements, ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '不需要', '飞针测试', '夹具测试'])
+    const testInvalid = listInvalid(form.testRequirements, ['电感测试', '损耗', '耐电压测试', '孔电阻测试', '线电阻测试', '阻抗测试', '不需要', '飞针测试', '夹具测试'])
     if (testInvalid.length) add('测试要求', testInvalid.join('、'))
-    const shippingInvalid = listInvalid(form.shippingReports, ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '不需要'])
+    const shippingInvalid = listInvalid(form.shippingReports, ['最终产品检查报告', '回流焊测试报告', '可焊性测试报告', '离子污染度测试报告', '耐电压测试报告', '热应力检测报告', '阻抗测试报告', '不需要'])
     if (shippingInvalid.length) add('出货报告', shippingInvalid.join('、'))
     const processInvalid = listInvalid(form.specialProcesses, ['电镀填孔', '金属包边', '金属化半孔', '背钻孔', '锥形孔', '阶梯孔', '铣阶梯槽', '控深钻', '不需要'])
     if (processInvalid.length) add('特殊工艺', processInvalid.join('、'))

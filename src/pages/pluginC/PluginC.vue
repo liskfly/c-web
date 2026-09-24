@@ -336,6 +336,8 @@ const {
   syncPrevMaterial,
   applyMaterialPriorityRules,
   applyCopperRules,
+  onOuterCopperThicknessBlur,
+  onOuterBaseCopperThicknessBlur,
   onMaterialTypeChange,
   onMaterialVersionSelect,
   onMaterialVersionChange,
@@ -347,6 +349,7 @@ const {
   form,
   currentPpModel,
   markDefaultAlgorithmFields,
+  isFieldResolved: (field: string) => Object.prototype.hasOwnProperty.call(fieldRawData, field),
 })
 
 function sourceLabel(f: string): string {
@@ -999,7 +1002,8 @@ const parameterFormContext = {
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,
   queryMaxWarpage, queryBoardThickness, queryThicknessTolerance, queryOuterCopperThickness,
-  queryOuterBaseCopperThickness, queryInnerCopperThickness, hasInnerLayer, showEnigGold,
+  queryOuterBaseCopperThickness, onOuterCopperThicknessBlur, onOuterBaseCopperThicknessBlur,
+  queryInnerCopperThickness, hasInnerLayer, showEnigGold,
   queryEnigGoldThickness, queryHoleCopperThickness, showGoldFinger, queryGoldFingerThickness,
   computedDrillDensity,
 }

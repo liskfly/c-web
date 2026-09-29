@@ -18,7 +18,7 @@ import {
 } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { initialForm, defaultValues, formOptions, fieldLabels } from './config/form'
 import { materialRules } from './config/materials'
 import { useP10Rules } from './composables/useP10Rules'
@@ -32,6 +32,10 @@ import { runtimeConfig } from '@/config/runtimeConfig'
 import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
 import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
 import { normalizeRemarks } from '@/utils/remarkData'
+import {
+  INDUSTRY_STANDARD_QUOTE_FIELDS,
+  INDUSTRY_STANDARD_QUOTE_WARNING,
+} from '@/utils/industryStandardQuote'
 
 // ==================== 折叠 ====================
 const sections = reactive<Record<string, boolean>>({ basic: true, process: true, custom: true, stackup: true, impedance: true })
@@ -58,6 +62,19 @@ const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
 const rawEventData = ref<any>(null)
 const systemDefaultFields = new Set(['pcbFile', 'quantity'])
+const industryStandardHighlightFields = new Set([
+  'materialType',
+  'materialTg',
+  'halogenFree',
+  'boardThickness',
+  'outerCopperThickness',
+  'outerBaseCopperThickness',
+  'innerCopperThickness',
+  'solderMaskColor',
+  'silkscreenColor',
+  'surfaceFinish',
+  'viaProcess',
+])
 
 const userModifiedFields = ref<Set<string>>(new Set())
 let applyingData = false
@@ -79,9 +96,12 @@ function fieldBgClass(f: string): string {
   // 背景色只由来源决定（有来源优先显示来源色，即使该字段有默认值）；用户改动不改变背景，只让字体变蓝
   let cls = ''
   const src = fieldSource[f]
+  const isIndustryStandard = src === 'server default' ||
+    (!src && hasDefault(f) && !systemDefaultFields.has(f))
   if (src === 'ai') cls = 'bg-green'
   else if (src === 'cam') cls = 'bg-orange'
-  // 服务端默认、系统默认、默认算法规则均使用白色背景
+  else if (isIndustryStandard && industryStandardHighlightFields.has(f)) cls = 'bg-light-yellow'
+  // 其他服务端默认、系统默认、默认算法规则均使用白色背景
   else if (src === 'server default' || src === 'system default' || src === 'default algorithm rule') cls = ''
   else if (!hasDefault(f)) {
     // 板材品牌/板材型号：无来源时默认浅灰（可选项，非必填）
@@ -327,6 +347,24 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
   return 'user'
 }
 
+async function confirmIndustryStandardQuote(): Promise<boolean> {
+  const needsConfirmation = INDUSTRY_STANDARD_QUOTE_FIELDS.some(
+    field => submittedFieldSource(field) === 'server default',
+  )
+  if (!needsConfirmation) return true
+
+  try {
+    await ElMessageBox.confirm(INDUSTRY_STANDARD_QUOTE_WARNING, '提示', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 const { handleSizeBlur, requestPCSSize, requestSetSize } = usePanelSize({
   form,
   markDefaultAlgorithmFields,
@@ -454,6 +492,10 @@ async function submitForm() {
   if (submitting.value) return
   if (!validateForm()) return
   submitting.value = true
+  if (!await confirmIndustryStandardQuote()) {
+    submitting.value = false
+    return
+  }
   const params: Record<string, any> = {}
   const fk = Object.keys(form)
   fk.forEach(k => { if (k !== "remark") params[k] = form[k] })

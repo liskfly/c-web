@@ -66,6 +66,8 @@
 .plugin-c-page .bg-light-red .el-select__wrapper { background: #fff1f0; box-shadow: 0 0 0 1px #ffccc7 inset; }
 .plugin-c-page .bg-light-gray .el-input__wrapper { background: #f5f5f5; box-shadow: 0 0 0 1px #e0e0e0 inset; }
 .plugin-c-page .bg-light-gray .el-select__wrapper { background: #f5f5f5; box-shadow: 0 0 0 1px #e0e0e0 inset; }
+.plugin-c-page .bg-light-yellow .el-input__wrapper { background: #fff3a3; box-shadow: 0 0 0 1px #ffd84d inset; }
+.plugin-c-page .bg-light-yellow .el-select__wrapper { background: #fff3a3; box-shadow: 0 0 0 1px #ffd84d inset; }
 .plugin-c-page .bg-green .el-input__wrapper { background: #f6ffed; box-shadow: 0 0 0 1px #b7eb8f inset; }
 .plugin-c-page .bg-green .el-select__wrapper { background: #f6ffed; box-shadow: 0 0 0 1px #b7eb8f inset; }
 .plugin-c-page .bg-orange .el-input__wrapper { background: #fff7e6; box-shadow: 0 0 0 1px #ffd591 inset; }

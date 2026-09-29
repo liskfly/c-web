@@ -79,6 +79,8 @@
 .plugin-a-page .bg-light-red .el-select__wrapper { background: #fff1f0; box-shadow: 0 0 0 1px #ffccc7 inset; }
 .plugin-a-page .bg-light-gray .el-input__wrapper { background: #f5f5f5; box-shadow: 0 0 0 1px #e0e0e0 inset; }
 .plugin-a-page .bg-light-gray .el-select__wrapper { background: #f5f5f5; box-shadow: 0 0 0 1px #e0e0e0 inset; }
+.plugin-a-page .bg-light-yellow .el-input__wrapper { background: #fff3a3; box-shadow: 0 0 0 1px #ffd84d inset; }
+.plugin-a-page .bg-light-yellow .el-select__wrapper { background: #fff3a3; box-shadow: 0 0 0 1px #ffd84d inset; }
 .plugin-a-page .bg-green .el-input__wrapper { background: #e2efda; box-shadow: 0 0 0 1px #a9d08e inset; }
 .plugin-a-page .bg-green .el-select__wrapper { background: #e2efda; box-shadow: 0 0 0 1px #a9d08e inset; }
 .plugin-a-page .bg-orange .el-input__wrapper { background: #ffc000; box-shadow: 0 0 0 1px #c65911 inset; }

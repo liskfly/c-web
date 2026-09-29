@@ -18,6 +18,20 @@ interface FieldSourceOptions {
   coerceValue: (field: string, value: unknown) => any
 }
 
+const INDUSTRY_STANDARD_HIGHLIGHT_FIELDS = new Set([
+  'materialType',
+  'materialTg',
+  'halogenFree',
+  'boardThickness',
+  'outerCopperThickness',
+  'outerBaseCopperThickness',
+  'innerCopperThickness',
+  'solderMaskColor',
+  'silkscreenColor',
+  'surfaceFinish',
+  'viaProcess',
+])
+
 export function useFieldSources(options: FieldSourceOptions) {
   const {
     form,
@@ -103,6 +117,8 @@ export function useFieldSources(options: FieldSourceOptions) {
   function fieldBgClass(field: string): string {
     const source = fieldSource[field]
     const modified = userModifiedFields.value.has(field) || source === 'user'
+    const isIndustryStandard = source === 'server default' ||
+      (!source && hasDefault(field) && !systemDefaultFields.has(field))
     if (source === 'conflict') return 'bg-conflict'
     if (!hasFieldValue(field)) {
       const classes = []
@@ -117,6 +133,9 @@ export function useFieldSources(options: FieldSourceOptions) {
     if (source === 'cam') {
       const selectedByUser = Object.prototype.hasOwnProperty.call(selectedSourceValues, field)
       return selectedByUser ? 'bg-cam-selected font-blue' : 'bg-orange'
+    }
+    if (isIndustryStandard && INDUSTRY_STANDARD_HIGHLIGHT_FIELDS.has(field)) {
+      return modified ? 'bg-light-yellow font-blue' : 'bg-light-yellow'
     }
     if (modified) return 'font-blue'
     if (source === 'server default' || source === 'system default' || source === 'default algorithm rule') return ''

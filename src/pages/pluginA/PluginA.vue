@@ -26,6 +26,10 @@ import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceD
 import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
 import { normalizeRemarks } from '@/utils/remarkData'
 import {
+  INDUSTRY_STANDARD_QUOTE_FIELDS,
+  INDUSTRY_STANDARD_QUOTE_WARNING,
+} from '@/utils/industryStandardQuote'
+import {
   calculateOuterBaseCopperThickness,
   calculateOuterFinishedCopperThickness,
   hasProvidedCopperThickness,
@@ -477,6 +481,24 @@ function submittedFieldSource(field: string): SubmittedFieldSource {
   return 'user'
 }
 
+async function confirmIndustryStandardQuote(): Promise<boolean> {
+  const needsConfirmation = INDUSTRY_STANDARD_QUOTE_FIELDS.some(
+    field => submittedFieldSource(field) === 'server default',
+  )
+  if (!needsConfirmation) return true
+
+  try {
+    await ElMessageBox.confirm(INDUSTRY_STANDARD_QUOTE_WARNING, '提示', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
@@ -538,9 +560,14 @@ function validateForm(): boolean {
   return true
 }
 
-function submitForm() {
+async function submitForm() {
   if (submitting.value) return
   if (!validateForm()) return
+  submitting.value = true
+  if (!await confirmIndustryStandardQuote()) {
+    submitting.value = false
+    return
+  }
   beginQuoteRequest()
   const params: Record<string, any> = {}
   const fk = Object.keys(form)

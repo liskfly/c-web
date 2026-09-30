@@ -5,12 +5,13 @@ const props = defineProps<{ context: Record<string, any> }>()
 const {
   sections, impRows, impTypes, layerOptions, refLayerOptions, onControlLayerChange,
   validateRefLayer, insertImpRow, addImpRow,
+  requestScreenshotParams,
 } = props.context
 </script>
 
 <template>
 <!-- 五、阻抗 -->
-      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size: 16px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="arrow" :class="{ up: sections.impedance }">▼</span></div>
+      <div class="section-row" @click="sections.impedance = !sections.impedance" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size: 16px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">五、阻抗控制要求 <span class="section-title-actions"><button type="button" class="screenshot-params-btn" @click.stop="requestScreenshotParams('Impedance')">截图提参</button><span class="arrow" :class="{ up: sections.impedance }">▼</span></span></div>
       <div v-if="sections.impedance" style="padding:0">
         <el-table :data="impRows" size="small" border style="width:100%">
           <el-table-column label="阻抗类型"><template #default="{ row }"><el-select v-model="row.impType" size="large" style="width:100%"><el-option v-for="t in impTypes" :key="t" :label="t" :value="t" /></el-select></template></el-table-column>

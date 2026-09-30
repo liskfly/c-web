@@ -22,7 +22,7 @@ function nearest(value: number, candidates: readonly number[]) {
 
 /**
  * 根据外层完成铜厚度推算外层基铜厚度。
- * 35um 边界归入低档；候选值等距时取较小值。
+ * 完成铜厚度 <= 35um 时减 18um，否则减 35um；候选值等距时取较小值。
  */
 export function calculateOuterBaseCopperThickness(finishedThickness: number) {
   const lowRange = finishedThickness <= 35
@@ -32,7 +32,7 @@ export function calculateOuterBaseCopperThickness(finishedThickness: number) {
 
 /**
  * 根据外层基铜厚度推算外层完成铜厚度。
- * 35um 边界归入低档；候选值等距时取较小值。
+ * 基铜厚度 <= 35um 时加 18um，否则加 35um；候选值等距时取较小值。
  */
 export function calculateOuterFinishedCopperThickness(baseThickness: number) {
   const lowRange = baseThickness <= 35

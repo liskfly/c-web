@@ -5,6 +5,7 @@ import { ElAutocomplete, ElButton, ElInput, ElInputNumber, ElOption, ElSelect } 
 const props = defineProps<{ context: Record<string, any> }>()
 const {
   form, sections, opts, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
+  requestScreenshotParams,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,
@@ -16,7 +17,7 @@ const {
 
 <template>
 <!-- 一、基本信息 -->
-          <tr class="section-row" @click="sections.basic = !sections.basic"><td colspan="4">一、PCB 基本信息 <span class="arrow" :class="{ up: sections.basic }">▼</span></td></tr>
+          <tr class="section-row" @click="sections.basic = !sections.basic"><td colspan="4">一、PCB 基本信息 <span class="section-title-actions"><button type="button" class="screenshot-params-btn" @click.stop="requestScreenshotParams('PCBParams')">截图提参</button><span class="arrow" :class="{ up: sections.basic }">▼</span></span></td></tr>
           <template v-if="sections.basic">
             <tr style="display:none"><td>生产型号</td><td :class="fieldBgClass('pcbName')"><el-input v-model="form.pcbName" size="large" /></td><td class="td-src"><SourceSelector field="pcbName" :context="props.context" /></td><td class="td-view"><button v-if="showGraphicBtn('pcbName')" class="btn-view graphic" @click="handleViewClick('pcbName')">图形</button><button v-if="showDocBtn('pcbName')" class="btn-view doc" @click="handleViewClick('pcbName')">加工文档</button></td></tr>
             <tr><td>PCB 资料（客户品名）<span class="req">*</span></td><td :class="fieldBgClass('pcbFile')"><el-input v-model="form.pcbFile" size="large" /></td><td class="td-src"><SourceSelector field="pcbFile" :context="props.context" /></td><td class="td-view"><button v-if="showGraphicBtn('pcbFile')" class="btn-view graphic" @click="handleViewClick('pcbFile')">图形</button><button v-if="showDocBtn('pcbFile')" class="btn-view doc" @click="handleViewClick('pcbFile')">加工文档</button></td></tr>

@@ -6,6 +6,7 @@ import ImpedanceSection from './components/ImpedanceSection.vue'
 import QuoteSummary from './components/QuoteSummary.vue'
 import PaymentDialog from './components/PaymentDialog.vue'
 import {
+  getManualRegionParamsAnalysisStatusInfoOffline,
   getOnlineQuoteParamsInfo,
   getOrderPriceQuery,
   getQuoteInfoOffline,
@@ -14,6 +15,7 @@ import {
   payCallback,
   pcbModelIdCreate,
   submitTransferNotify,
+  submitManualRegionParamsAnalysisOffline,
   updateOrderStatus,
 } from '@/api/pcb'
 import { pcbPayV2, getPcbOrderStatusV2 } from '@/api/invoice'
@@ -32,6 +34,11 @@ import { runtimeConfig } from '@/config/runtimeConfig'
 import { extractImpedanceList, serializeImpedanceRows } from '@/utils/impedanceData'
 import { extractStackupList, serializeStackupRows } from '@/utils/stackupData'
 import { normalizeRemarks } from '@/utils/remarkData'
+import {
+  cloneFieldValue,
+  normalizeRemoteOptions,
+  type FieldSourceOption,
+} from '@/pages/pluginA/domain/fieldSources'
 import {
   INDUSTRY_STANDARD_QUOTE_FIELDS,
   INDUSTRY_STANDARD_QUOTE_WARNING,
@@ -60,6 +67,8 @@ const displayedRemarks = computed(() => [
 // ==================== 数据来源追踪 ====================
 const fieldSource = reactive<Record<string, string>>({})
 const fieldRawData = reactive<Record<string, any>>({})
+const fieldRemoteOptions = reactive<Record<string, FieldSourceOption[]>>({})
+let manualSourceSequence = 0
 const rawEventData = ref<any>(null)
 const systemDefaultFields = new Set(['pcbFile', 'quantity'])
 const industryStandardHighlightFields = new Set([
@@ -98,7 +107,8 @@ function fieldBgClass(f: string): string {
   const src = fieldSource[f]
   const isIndustryStandard = src === 'server default' ||
     (!src && hasDefault(f) && !systemDefaultFields.has(f))
-  if (src === 'ai') cls = 'bg-green'
+  if (src === 'conflict') cls = 'bg-conflict'
+  else if (src === 'ai') cls = 'bg-green'
   else if (src === 'cam') cls = 'bg-orange'
   else if (isIndustryStandard && industryStandardHighlightFields.has(f)) cls = 'bg-light-yellow'
   // 其他服务端默认、系统默认、默认算法规则均使用白色背景
@@ -221,6 +231,8 @@ const {
 const taskId = ref('')
 const userToken = ref('')
 const userUid = ref('')
+const userName = ref('')
+const deeplineUsername = ref('')
 const submitting = ref(false)
 const ordering = ref(false)
 const orderCompleted = ref(false)
@@ -315,6 +327,19 @@ function toBoolean(value: unknown): boolean {
   return Boolean(value)
 }
 
+function coerceFieldValue(field: string, value: unknown): any {
+  const boolFields = ['blindVia','acceptXOut','materialTg','halogenFree','impedanceControl','confirmProductionFile']
+  const numberFields = ['boardThickness','outerCopperThickness','outerBaseCopperThickness','innerCopperThickness','holeCopperThickness','enigGoldThickness','goldFingerThickness']
+  const arrayFields = ['markingRequirements','testRequirements','shippingReports','specialProcesses']
+  if (boolFields.includes(field)) return toBoolean(value)
+  if (numberFields.includes(field)) {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : null
+  }
+  if (arrayFields.includes(field)) return Array.isArray(value) ? value : (value ? [value] : [])
+  return value
+}
+
 function formatMoney(value: unknown): string {
   if (value === null || value === undefined || value === '') return '--'
   const numeric = Number(value)
@@ -391,6 +416,7 @@ const {
 })
 
 function sourceLabel(f: string): string {
+  if (fieldSource[f] === 'conflict') return '数据有冲突'
   if (!hasFieldValue(f)) return ''
   // 用户修改过 → 用户确认；否则按来源显示
   if (userModifiedFields.value.has(f)) return '用户确认'
@@ -406,6 +432,7 @@ function sourceLabel(f: string): string {
   return ''
 }
 function sourceClass(f: string): string {
+  if (fieldSource[f] === 'conflict') return 'badge conflict'
   if (!hasFieldValue(f)) return 'badge empty'
   if (userModifiedFields.value.has(f)) return 'badge user'
   const s = fieldSource[f]
@@ -415,9 +442,245 @@ function sourceClass(f: string): string {
   if (s === 'default algorithm rule') return 'badge algorithm'
   return 'badge empty'
 }
+
+function sourceOptions(field: string): FieldSourceOption[] {
+  const result: FieldSourceOption[] = []
+  if (hasDefault(field)) {
+    const source = systemDefaultFields.has(field) ? 'system default' : 'server default'
+    result.push({
+      id: `default:${field}`,
+      kind: 'default',
+      label: source === 'system default' ? '系统默认' : '默认行业标准',
+      source,
+      value: cloneFieldValue(DEFAULT_VALUES[field]),
+    })
+  }
+  result.push(...(fieldRemoteOptions[field] || []))
+  return result
+}
+
+function showSourceOptionValues(field: string): boolean {
+  return deeplineMode.value && (fieldRemoteOptions[field]?.length || 0) > 1
+}
+
+async function selectSource(field: string, optionId: string) {
+  const selected = sourceOptions(field).find(option => option.id === optionId)
+  if (!selected) return
+  applyingData = true
+  try {
+    form[field] = cloneFieldValue(selected.value)
+    fieldSource[field] = selected.source
+    if (selected.raw) fieldRawData[field] = selected.raw
+    else delete fieldRawData[field]
+    await nextTick()
+    userBaseline[field] = cloneFieldValue(form[field])
+  } finally {
+    applyingData = false
+    rebuildUserModified()
+  }
+  if (['pcsSizeWidth', 'pcsSizeHeight', 'setSizeWidth', 'setSizeHeight'].includes(field)) handleSizeBlur()
+}
 function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='cam') return false; return Array.isArray(r.items)&&r.items.length>0 }
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
+
+type ScreenshotParamsModule = 'PCBParams' | 'Stackup' | 'Impedance'
+
+const aiPdfPending = ref(false)
+const aiPdfModule = ref<ScreenshotParamsModule | null>(null)
+const MANUAL_AI_POLL_INTERVAL_MS = 2_000
+let aiPdfRequestSequence = 0
+let aiPdfProcessing = false
+
+function manualAiUsername() {
+  return deeplineUsername.value || userName.value
+}
+
+function finishScreenshotParams(requestSequence: number) {
+  if (requestSequence !== aiPdfRequestSequence) return
+  aiPdfPending.value = false
+  aiPdfModule.value = null
+  aiPdfProcessing = false
+}
+
+function requestScreenshotParams(module: ScreenshotParamsModule) {
+  if (aiPdfPending.value) return
+  if (!taskId.value) {
+    ElMessage.warning('尚未获取到任务 ID，暂时无法截图提参')
+    return
+  }
+  if (!manualAiUsername()) {
+    ElMessage.warning('尚未获取到线下用户名，暂时无法截图提参')
+    return
+  }
+  const win = window as any
+  if (!win.QtBridge?.send) {
+    ElMessage.error('截图提参不可用，请检查客户端连接')
+    return
+  }
+  const payload = { PDFName: module, getAIPDF: '1' }
+  console.log('[我→QT] html-button-message:', JSON.stringify(payload))
+  aiPdfModule.value = module
+  aiPdfPending.value = true
+  aiPdfProcessing = false
+  const requestSequence = ++aiPdfRequestSequence
+  try {
+    win.QtBridge.send('html-button-message', payload)
+  } catch (error) {
+    finishScreenshotParams(requestSequence)
+    reportError('截图提参', error, '截图请求发送失败，请检查客户端连接')
+  }
+}
+
+function screenshotPdfBase64(detail: Record<string, any>): string {
+  const data = detail.data && typeof detail.data === 'object' ? detail.data : null
+  const value = detail.base64 ?? detail.pdfBase64 ?? detail.PDFBase64 ??
+    data?.base64 ?? data?.pdfBase64 ?? data?.PDFBase64
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function base64ToPdfFile(base64: string, module: ScreenshotParamsModule): File {
+  const encoded = base64.replace(/^data:application\/pdf;base64,/i, '').replace(/\s/g, '')
+  if (!encoded) throw new Error('Qt 未返回 PDF Base64 数据')
+  let binary: string
+  try {
+    const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/')
+    binary = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='))
+  } catch {
+    throw new Error('Qt 返回的 PDF Base64 格式无效')
+  }
+  if (!binary.startsWith('%PDF-')) throw new Error('Qt 返回的数据不是有效 PDF')
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+  return new File([bytes], `制版说明_${module}.pdf`, { type: 'application/pdf' })
+}
+
+function waitForManualAiPoll() {
+  return new Promise<void>(resolve => window.setTimeout(resolve, MANUAL_AI_POLL_INTERVAL_MS))
+}
+
+async function queryManualAiStatus(manualTaskId: string) {
+  return getManualRegionParamsAnalysisStatusInfoOffline({
+    manualTaskId,
+    deeplineUsername: manualAiUsername(),
+  })
+}
+
+async function waitForManualAiResult(manualTaskId: string, requestSequence: number) {
+  while (componentActive && requestSequence === aiPdfRequestSequence) {
+    const response: any = await queryManualAiStatus(manualTaskId)
+    const status = String(response?.data?.status ?? '').toUpperCase()
+    if (Number(response?.code) === 200 && status === 'SUCCESS') {
+      if (!response.data?.results || typeof response.data.results !== 'object') {
+        throw new Error('手动 AI 提参成功，但未返回有效参数')
+      }
+      return response.data
+    }
+    if (Number(response?.code) === 500 || status === 'FAILED') {
+      const errorCode = response?.data?.errorCode
+      throw new Error(`${response?.message || '手动 AI 提参失败'}${errorCode ? `（错误码：${errorCode}）` : ''}`)
+    }
+    if (Number(response?.code) === -1 || status === 'INVALID') throw new Error('手动 AI 提参任务已失效')
+    if (Number(response?.code) !== 1000 || !['PENDING', 'RUNNING'].includes(status)) {
+      throw new Error(response?.message || '手动 AI 提参返回了未知状态')
+    }
+    await waitForManualAiPoll()
+  }
+  return null
+}
+
+async function applyManualPcbResults(data: Record<string, any>, preserveSources: boolean) {
+  applyingData = true
+  const updatedFields: string[] = []
+  try {
+    if (Object.prototype.hasOwnProperty.call(data, 'remark')) {
+      receivedRemarks.value = normalizeRemarks(data.remark)
+    }
+    for (const field of Object.keys(data)) {
+      if (!(field in form) || field === 'remark') continue
+      const candidates = normalizeRemoteOptions(field, data[field], systemDefaultFields.has(field))
+        .map(candidate => ({
+          ...candidate,
+          source: candidate.source || 'ai',
+          value: coerceFieldValue(field, candidate.value),
+        }))
+        .filter(candidate => candidate.value !== undefined && candidate.value !== null && candidate.value !== '')
+      if (!candidates.length) continue
+
+      const existing = fieldRemoteOptions[field] || []
+      let aiPosition = existing.filter(candidate => candidate.source === 'ai').length
+      const manualCandidates = candidates.map(candidate => ({
+        ...candidate,
+        id: `remote:${field}:manual:${++manualSourceSequence}`,
+        label: candidate.source === 'ai' ? `AI提参${++aiPosition}` : candidate.label,
+      })) as FieldSourceOption[]
+      fieldRemoteOptions[field] = preserveSources ? [...existing, ...manualCandidates] : manualCandidates
+
+      const selected = manualCandidates[0]
+      form[field] = cloneFieldValue(selected.value)
+      fieldSource[field] = selected.source
+      if (selected.raw) fieldRawData[field] = selected.raw
+      else delete fieldRawData[field]
+      updatedFields.push(field)
+    }
+    if (!updatedFields.length) throw new Error('手动 AI 未返回可更新的 PCB 参数')
+    applyCopperRules(data)
+    syncDeliveryUnit()
+    syncPrevMaterial()
+    handleSizeBlur()
+    await nextTick()
+    for (const field of updatedFields) userBaseline[field] = cloneFieldValue(form[field])
+  } finally {
+    applyingData = false
+    rebuildUserModified()
+  }
+}
+
+async function applyManualAiResult(module: ScreenshotParamsModule, result: Record<string, any>) {
+  const results = result.results as Record<string, any>
+  if (module === 'Stackup') {
+    const stackupList = extractStackupList(results)
+    if (!stackupList) throw new Error('手动 AI 未返回有效叠层参数')
+    applyStackupRows(stackupList)
+    return
+  }
+  if (module === 'Impedance') {
+    const impedanceList = extractImpedanceList(results)
+    if (!impedanceList) throw new Error('手动 AI 未返回有效阻抗参数')
+    applyImpedanceRows(impedanceList)
+    return
+  }
+  const sourceData = results.Set && typeof results.Set === 'object' && !Array.isArray(results.Set)
+    ? results.Set
+    : results
+  const preserveSources = result.keepParameterConflicts === true || result.resultFormat === 'candidate_array'
+  await applyManualPcbResults(sourceData, preserveSources)
+}
+
+async function submitManualAiPdf(file: File) {
+  return submitManualRegionParamsAnalysisOffline({
+    parentTaskId: taskId.value,
+    file,
+    deeplineUsername: manualAiUsername(),
+  })
+}
+
+async function processScreenshotPdf(module: ScreenshotParamsModule, base64: string, requestSequence: number) {
+  const submitResponse: any = await submitManualAiPdf(base64ToPdfFile(base64, module))
+  const manualTaskId = String(submitResponse?.data?.manualTaskId ?? '')
+  if (Number(submitResponse?.code) !== 200 || !manualTaskId) {
+    throw new Error(submitResponse?.message || '手动 AI 提参任务提交失败')
+  }
+  const result = await waitForManualAiResult(manualTaskId, requestSequence)
+  if (!result || !componentActive || requestSequence !== aiPdfRequestSequence) return
+  const returnedModule = String(result.parameterType ?? '')
+  if (returnedModule && returnedModule !== module) {
+    throw new Error(`手动 AI 返回模块不匹配：期望 ${module}，实际 ${returnedModule}`)
+  }
+  await applyManualAiResult(module, result)
+  formDataLoaded.value = true
+  ElMessage.success('截图提参已更新')
+}
 
 function applyReturnedStructureRows(stackupList: unknown[] | null, impedanceList: unknown[] | null) {
   const layerCount = Number(form.layerCount)
@@ -446,7 +709,13 @@ async function applyFieldData(data: Record<string, any>) {
   for(const k of Object.keys(data)) {
     if(k === 'remark') continue
     if(!(k in form)) continue
-    const e=data[k]; const v = k === 'immersionGoldArea' ? (e?.ratio ?? e?.[k] ?? e) : (e?.value ?? e?.[k] ?? e); const s=e?.source??''
+    const candidates = normalizeRemoteOptions(k, data[k], systemDefaultFields.has(k))
+      .map(candidate => ({ ...candidate, value: coerceFieldValue(k, candidate.value) }))
+    if (candidates.length) fieldRemoteOptions[k] = candidates
+    const selected = candidates[0]
+    const e=selected?.raw ?? data[k]
+    const v = selected ? selected.value : (k === 'immersionGoldArea' ? (e?.ratio ?? e?.[k] ?? e) : (e?.value ?? e?.[k] ?? e))
+    const s=selected?.source ?? e?.source ?? ''
     if(boolF.includes(k)) form[k]=toBoolean(v)
     else if(numF.includes(k)) { const numeric=Number(v); form[k]=Number.isFinite(numeric)?numeric:0 }
     else if(arrF.includes(k)) form[k]=Array.isArray(v)?v:(v?[v]:[])
@@ -769,6 +1038,8 @@ function resetToInitialState() {
   taskId.value = ''
   userToken.value = ''
   userUid.value = ''
+  userName.value = ''
+  deeplineUsername.value = ''
   tokenReady.value = false
   formDataLoaded.value = false
   receivedRemarks.value = []
@@ -784,6 +1055,7 @@ function resetToInitialState() {
   applyingData = false
   for (const k of Object.keys(fieldSource)) delete fieldSource[k]
   for (const k of Object.keys(fieldRawData)) delete fieldRawData[k]
+  for (const k of Object.keys(fieldRemoteOptions)) delete fieldRemoteOptions[k]
   userBaseline = JSON.parse(JSON.stringify(DEFAULT_VALUES))
   rebuildUserModified()
   syncPrevMaterial()
@@ -804,6 +1076,8 @@ async function handleQtMessage(event: Event) {
     deeplineMode.value = tokenContext.enabled
     userToken.value = tokenContext.token
     userUid.value = tokenContext.uid
+    userName.value = tokenContext.userName
+    deeplineUsername.value = tokenContext.deeplineUsername
     if (tokenContext.taskId) taskId.value = tokenContext.taskId
     tokenReady.value = Boolean(taskId.value)
     if (!tokenReady.value) { ElMessage.error('未获取到有效 TaskId'); return }
@@ -821,7 +1095,36 @@ async function handleQtMessage(event: Event) {
   }
 
   if (rn === 'refreshShow') {
+    aiPdfRequestSequence++
+    aiPdfPending.value = false
+    aiPdfModule.value = null
+    aiPdfProcessing = false
     resetToInitialState()
+    return
+  }
+
+  if (rn === 'getAIPDF') {
+    const module = aiPdfModule.value
+    const requestSequence = aiPdfRequestSequence
+    if (!aiPdfPending.value || !module) {
+      console.warn('[截图提参] 已忽略未匹配的 getAIPDF 消息')
+      return
+    }
+    if (aiPdfProcessing) {
+      console.warn('[截图提参] 已忽略重复的 getAIPDF 消息')
+      return
+    }
+    aiPdfProcessing = true
+    try {
+      if (detail.code !== undefined && Number(detail.code) !== 200) {
+        throw new Error(detail.message || 'Qt 截图失败')
+      }
+      await processScreenshotPdf(module, screenshotPdfBase64(detail), requestSequence)
+    } catch (error: any) {
+      reportError('截图提参', error, error?.message || '截图提参失败')
+    } finally {
+      finishScreenshotParams(requestSequence)
+    }
     return
   }
 
@@ -979,6 +1282,9 @@ async function loadQuoteParamsFromApi() {
         // 同时兼容旧的纯值和 A 页面上传的 { value, source } 结构。
         if (!(key in data)) continue
         const entry = data[key]
+        const candidates = normalizeRemoteOptions(key, entry, systemDefaultFields.has(key))
+          .map(candidate => ({ ...candidate, value: coerceFieldValue(key, candidate.value) }))
+        if (candidates.length) fieldRemoteOptions[key] = candidates
         const v = key === 'immersionGoldArea'
           ? (entry?.ratio ?? entry?.value ?? entry?.[key] ?? entry)
           : (entry?.value ?? entry?.[key] ?? entry)
@@ -1036,10 +1342,15 @@ const boardStructureContext = {
   form, sections, stackupRows, stackupScheme, toggleStackupScheme, onMaterialChange,
   queryStackupCuType, queryStackupPpType, queryStackupCoreType, insertStackupRow, addStackupRow,
   impRows, impTypes, layerOptions, refLayerOptions, onControlLayerChange, validateRefLayer, insertImpRow, addImpRow,
+  requestScreenshotParams,
 }
 
 const parameterFormContext = {
-  form, sections, opts, displayedRemarks, fieldBgClass, sourceClass, sourceLabel, showGraphicBtn, showDocBtn, handleViewClick,
+  form, sections, opts, displayedRemarks, fieldBgClass, sourceClass, sourceLabel,
+  sourceOptions, showSourceOptionValues, selectSource,
+  get conflictMode() { return deeplineMode.value },
+  showGraphicBtn, showDocBtn, handleViewClick,
+  requestScreenshotParams,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,
@@ -1057,6 +1368,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   componentActive = false
+  aiPdfRequestSequence++
+  aiPdfPending.value = false
+  aiPdfModule.value = null
+  aiPdfProcessing = false
   window.removeEventListener('QtMessage', handleQtMessage)
   clearTimers()
   clearQuoteResponseTimer()
@@ -1067,10 +1382,11 @@ onUnmounted(() => {
 })
 </script>
 <template>
-  <div class="plugin-c-page">
+  <div class="plugin-c-page" :aria-busy="aiPdfPending">
+    <div v-if="aiPdfPending" class="ai-pdf-lock" aria-label="截图提参处理中"><span class="ai-pdf-lock-spinner"></span></div>
     <div v-if="!formDataLoaded" class="loading-bar"></div>
     <div v-if="formDataLoaded && !tokenReady" class="token-banner">请等待身份验证完成，当前仅可编辑表单...</div>
-    <div class="form-box">
+    <div class="form-box" :inert="aiPdfPending">
       <ParameterForm :context="parameterFormContext" />
       <StackupSection :context="boardStructureContext" />
       <ImpedanceSection :context="boardStructureContext" />

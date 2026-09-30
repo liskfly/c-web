@@ -4,6 +4,8 @@ export interface DeeplineTokenContext {
   taskId: string
   token: string
   uid: string
+  userName: string
+  deeplineUsername: string
 }
 
 function toRecord(value: unknown): Record<string, any> | null {
@@ -74,6 +76,15 @@ export function resolveDeeplineToken(
       record => Boolean(record.elecnest_user_token ?? record.token),
       ['elecnest_user_info', 'user_info', 'data'],
     )
+  const deeplineIdentity = findNestedRecord(
+    deepInfo,
+    record => Boolean(
+      record.deepline_username ?? record.deeplineUsername ??
+      record.user_name ?? record.username ?? record.userName,
+    ),
+    ['user_info', 'data', 'identity'],
+  )
+  const rawInfoUsername = typeof rawInfo === 'string' && !deepInfo ? rawInfo.trim() : ''
 
   return {
     enabled,
@@ -81,5 +92,16 @@ export function resolveDeeplineToken(
     taskId: String(detail.taskId ?? taskRecord?.taskId ?? taskRecord?.task_id ?? ''),
     token: String(identity?.elecnest_user_token ?? identity?.token ?? ''),
     uid: String(identity?.elecnest_user_uid ?? identity?.uid ?? ''),
+    userName: String(
+      detail.elecnest_user_name ?? detail.elecnest_username ?? detail.user_name ?? detail.username ??
+      identity?.elecnest_user_name ?? identity?.elecnest_username ??
+      identity?.user_name ?? identity?.username ?? '',
+    ),
+    deeplineUsername: String(
+      detail.deepline_username ?? detail.deeplineUsername ??
+      deeplineIdentity?.deepline_username ?? deeplineIdentity?.deeplineUsername ??
+      deeplineIdentity?.user_name ?? deeplineIdentity?.username ??
+      deeplineIdentity?.userName ?? rawInfoUsername,
+    ),
   }
 }

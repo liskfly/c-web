@@ -50,6 +50,7 @@ export function useFieldSources(options: FieldSourceOptions) {
   const userModifiedFields = ref<Set<string>>(new Set())
   const userBaseline = reactive<Record<string, any>>(cloneFieldValue(defaultValues))
   let applyingData = false
+  let manualOptionSequence = 0
 
   function hasDefault(field: string): boolean {
     return hasMeaningfulValue(defaultValues[field])
@@ -341,6 +342,66 @@ export function useFieldSources(options: FieldSourceOptions) {
     }
   }
 
+  /**
+   * 合并手动截图提参结果。
+   * 非冲突版只替换字段及其来源；冲突版保留已有候选，并追加本次 AI 候选。
+   */
+  async function applyManualFieldData(data: Record<string, any>) {
+    applyingData = true
+    const updatedFields: string[] = []
+    try {
+      for (const field of Object.keys(data)) {
+        if (!(field in form) || field === 'remark') continue
+        const candidates = normalizeRemoteOptions(field, data[field], systemDefaultFields.has(field))
+          .map(candidate => ({
+            ...candidate,
+            source: candidate.source || 'ai' as FieldSourceCode,
+            value: coerceValue(field, candidate.value),
+          }))
+          .filter(candidate => hasMeaningfulValue(candidate.value))
+        if (!candidates.length) continue
+
+        const existing = remoteOptions[field] || []
+        let aiPosition = existing.filter(candidate => candidate.source === 'ai').length
+        let camPosition = existing.filter(candidate => candidate.source === 'cam').length
+        const manualCandidates = candidates.map((candidate) => {
+          let label = candidate.label
+          if (candidate.source === 'ai') label = `AI提参${++aiPosition}`
+          else if (candidate.source === 'cam') label = `CAM提参${++camPosition}`
+          return {
+            ...candidate,
+            id: `remote:${field}:manual:${++manualOptionSequence}`,
+            label,
+          }
+        })
+
+        remoteOptions[field] = conflictMode
+          ? [...existing, ...manualCandidates]
+          : manualCandidates
+
+        // 手动截图结果是本次最新值；冲突版同时把它作为新增来源候选保留下来。
+        const selected = manualCandidates[0]
+        form[field] = cloneFieldValue(selected.value)
+        fieldSource[field] = selected.source
+        if (selected.raw) fieldRawData[field] = selected.raw
+        else delete fieldRawData[field]
+        delete selectedSourceValues[field]
+        updatedFields.push(field)
+      }
+
+      if (!updatedFields.length) return []
+      userModifiedFields.value = new Set(
+        [...userModifiedFields.value].filter(field => !updatedFields.includes(field)),
+      )
+      await nextTick()
+      snapshotBaseline(updatedFields)
+      return updatedFields
+    } finally {
+      applyingData = false
+      rebuildUserModified()
+    }
+  }
+
   return {
     fieldSource,
     fieldRawData,
@@ -357,5 +418,6 @@ export function useFieldSources(options: FieldSourceOptions) {
     selectSource,
     markDefaultAlgorithmFields,
     applyFieldData,
+    applyManualFieldData,
   }
 }

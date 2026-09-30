@@ -41,7 +41,8 @@ service.interceptors.request.use(
   (config) => {
     const isUpload =
       config.method === 'post' &&
-      (config.headers?.['Content-Type'] as string)?.includes('multipart/form-data')
+      (config.data instanceof FormData ||
+        (config.headers?.['Content-Type'] as string)?.includes('multipart/form-data'))
     const isSilent = config.headers?.__silent
     if (!isUpload && !isSilent) { showLoading() }
     // 清理内部标记，不发给后端

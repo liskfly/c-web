@@ -9,6 +9,38 @@
 .plugin-a-page .section-row td:hover { background: #e0eaff; }
 .plugin-a-page .arrow { float: right; font-size: 16px; color: #999; display: inline-block; }
 .plugin-a-page .arrow.up { transform: rotate(-180deg); }
+.plugin-a-page .section-title-actions { float: right; display: inline-flex; align-items: center; gap: 8px; }
+.plugin-a-page .section-title-actions .arrow { float: none; }
+.plugin-a-page .screenshot-params-btn {
+  padding: 3px 10px;
+  border: 1px solid #91caff;
+  border-radius: 4px;
+  background: #e6f4ff;
+  color: #1677ff;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.plugin-a-page .screenshot-params-btn:hover { background: #bae0ff; border-color: #69b1ff; }
+.plugin-a-page .ai-pdf-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.36);
+  cursor: wait;
+}
+.plugin-a-page .ai-pdf-lock-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #d9ecff;
+  border-top-color: #1677ff;
+  border-radius: 50%;
+  animation: ai-pdf-spin 0.8s linear infinite;
+}
+@keyframes ai-pdf-spin { to { transform: rotate(360deg); } }
 .plugin-a-page .req { color: #f53f3f; margin-left: 2px; }
 .plugin-a-page .inner-table { width: 100%; border-collapse: collapse; font-size: 16px; margin-bottom: 6px; }
 .plugin-a-page .inner-table th { background: #f7f8fa; padding: 4px 6px; border: 1px solid #e5e6eb; }

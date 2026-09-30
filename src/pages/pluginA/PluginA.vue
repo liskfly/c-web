@@ -7,7 +7,12 @@ import StackupSection from './components/StackupSection.vue'
 import ImpedanceSection from './components/ImpedanceSection.vue'
 import QuoteSummary from './components/QuoteSummary.vue'
 import PaymentDialog from './components/PaymentDialog.vue'
-import { orderCreate, unpaidAuditCallback } from '@/api/pcb'
+import {
+  getManualRegionParamsAnalysisStatusInfo,
+  orderCreate,
+  submitManualRegionParamsAnalysis,
+  unpaidAuditCallback,
+} from '@/api/pcb'
 import { PCB_PAY_ERROR_MESSAGE, pcbPayV2 } from '@/api/invoice'
 import QRCode from 'qrcode'
 import { materialRules, ppMap, versionDetailMap } from './config/materials'
@@ -298,6 +303,7 @@ const {
 const taskId = ref('')
 const userToken = ref('')
 const userUid = ref('')
+const userName = ref('')
 const invoiceRef = ref<any>(null)
 const deliveryRef = ref<any>(null)
 const submitting = ref(false)
@@ -420,6 +426,7 @@ const {
   selectSource: applySelectedSource,
   markDefaultAlgorithmFields,
   applyFieldData: applyFieldSourceData,
+  applyManualFieldData: applyManualFieldSourceData,
 } = useFieldSources({
   form,
   initialValues: initialForm,
@@ -503,6 +510,165 @@ function showGraphicBtn(f: string): boolean { const r = fieldRawData[f]; if (!r|
 function showDocBtn(f: string): boolean { const r = fieldRawData[f]; if (!r||r.source!=='ai') return false; return Array.isArray(r.bbox)&&r.bbox.length>0 }
 function handleViewClick(f: string) { const r = fieldRawData[f]; rawEventData.value = r; if(!r) return; const w=window as any; console.log('[我→QT] html-button-message:', JSON.stringify(r, null, 2)); if(w.QtBridge?.send) w.QtBridge.send('html-button-message',r); else{ElMessage.info('查看: '+f);} }
 
+type ScreenshotParamsModule = 'PCBParams' | 'Stackup' | 'Impedance'
+
+const aiPdfPending = ref(false)
+const aiPdfModule = ref<ScreenshotParamsModule | null>(null)
+const MANUAL_AI_POLL_INTERVAL_MS = 2_000
+let aiPdfRequestSequence = 0
+let aiPdfProcessing = false
+
+function finishScreenshotParams(requestSequence: number) {
+  if (requestSequence !== aiPdfRequestSequence) return
+  aiPdfPending.value = false
+  aiPdfModule.value = null
+  aiPdfProcessing = false
+}
+
+function requestScreenshotParams(module: ScreenshotParamsModule) {
+  if (aiPdfPending.value) return
+  if (!taskId.value) {
+    ElMessage.warning('尚未获取到任务 ID，暂时无法截图提参')
+    return
+  }
+  if (!userUid.value) {
+    ElMessage.warning('尚未获取到用户身份，暂时无法截图提参')
+    return
+  }
+  const win = window as any
+  if (!win.QtBridge?.send) {
+    ElMessage.error(withErrorSource('QT', '截图提参不可用，请检查客户端连接'))
+    return
+  }
+  const payload = { PDFName: module, getAIPDF: '1' }
+  console.log('[我→QT] html-button-message:', JSON.stringify(payload))
+  aiPdfModule.value = module
+  aiPdfPending.value = true
+  aiPdfProcessing = false
+  const requestSequence = ++aiPdfRequestSequence
+  try {
+    win.QtBridge.send('html-button-message', payload)
+  } catch (error) {
+    finishScreenshotParams(requestSequence)
+    reportError('截图提参', error, '截图请求发送失败，请检查客户端连接', 'QT')
+  }
+}
+
+function screenshotPdfBase64(detail: Record<string, any>): string {
+  const data = detail.data && typeof detail.data === 'object' ? detail.data : null
+  const value = detail.base64 ?? detail.pdfBase64 ?? detail.PDFBase64 ??
+    data?.base64 ?? data?.pdfBase64 ?? data?.PDFBase64
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function base64ToPdfFile(base64: string, module: ScreenshotParamsModule): File {
+  const encoded = base64.replace(/^data:application\/pdf;base64,/i, '').replace(/\s/g, '')
+  if (!encoded) throw new Error('Qt 未返回 PDF Base64 数据')
+
+  let binary: string
+  try {
+    const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/')
+    binary = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='))
+  } catch {
+    throw new Error('Qt 返回的 PDF Base64 格式无效')
+  }
+  if (!binary.startsWith('%PDF-')) throw new Error('Qt 返回的数据不是有效 PDF')
+
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+  return new File([bytes], `制版说明_${module}.pdf`, { type: 'application/pdf' })
+}
+
+function waitForManualAiPoll() {
+  return new Promise<void>(resolve => window.setTimeout(resolve, MANUAL_AI_POLL_INTERVAL_MS))
+}
+
+async function waitForManualAiResult(manualTaskId: string, requestSequence: number) {
+  while (componentActive && requestSequence === aiPdfRequestSequence) {
+    const response: any = await getManualRegionParamsAnalysisStatusInfo({
+      manualTaskId,
+      uid: userUid.value,
+      userName: userName.value,
+    })
+    const status = String(response?.data?.status ?? '').toUpperCase()
+    if (Number(response?.code) === 200 && status === 'SUCCESS') {
+      if (!response.data?.results || typeof response.data.results !== 'object') {
+        throw new Error('手动 AI 提参成功，但未返回有效参数')
+      }
+      return response.data
+    }
+    if (Number(response?.code) === 500 || status === 'FAILED') {
+      const errorCode = response?.data?.errorCode
+      throw new Error(`${response?.message || '手动 AI 提参失败'}${errorCode ? `（错误码：${errorCode}）` : ''}`)
+    }
+    if (Number(response?.code) === -1 || status === 'INVALID') {
+      throw new Error('手动 AI 提参任务已失效')
+    }
+    if (Number(response?.code) !== 1000 || !['PENDING', 'RUNNING'].includes(status)) {
+      throw new Error(response?.message || '手动 AI 提参返回了未知状态')
+    }
+    await waitForManualAiPoll()
+  }
+  return null
+}
+
+async function applyManualAiResult(module: ScreenshotParamsModule, results: Record<string, any>) {
+  if (module === 'Stackup') {
+    const stackupList = extractStackupList(results)
+    if (!stackupList) throw new Error('手动 AI 未返回有效叠层参数')
+    applyStackupRows(stackupList)
+    return
+  }
+  if (module === 'Impedance') {
+    const impedanceList = extractImpedanceList(results)
+    if (!impedanceList) throw new Error('手动 AI 未返回有效阻抗参数')
+    applyImpedanceRows(impedanceList)
+    return
+  }
+
+  const sourceData = results.Set && typeof results.Set === 'object' && !Array.isArray(results.Set)
+    ? { ...results.Set }
+    : { ...results }
+  if (Object.prototype.hasOwnProperty.call(sourceData, 'remark')) {
+    receivedRemarks.value = normalizeRemarks(sourceData.remark)
+    delete sourceData.remark
+  }
+  const updatedFields = await applyManualFieldSourceData(sourceData)
+  if (!updatedFields.length) throw new Error('手动 AI 未返回可更新的 PCB 参数')
+  applyCopperRules(sourceData)
+  syncDeliveryUnit()
+  syncPrevMaterial()
+  handleSizeBlur()
+}
+
+async function processScreenshotPdf(
+  module: ScreenshotParamsModule,
+  base64: string,
+  requestSequence: number,
+) {
+  const file = base64ToPdfFile(base64, module)
+  const submitResponse: any = await submitManualRegionParamsAnalysis({
+    parentTaskId: taskId.value,
+    file,
+    uid: userUid.value,
+    userName: userName.value,
+  })
+  const manualTaskId = String(submitResponse?.data?.manualTaskId ?? '')
+  if (Number(submitResponse?.code) !== 200 || !manualTaskId) {
+    throw new Error(submitResponse?.message || '手动 AI 提参任务提交失败')
+  }
+
+  const result = await waitForManualAiResult(manualTaskId, requestSequence)
+  if (!result || !componentActive || requestSequence !== aiPdfRequestSequence) return
+  const returnedModule = String(result.parameterType ?? '')
+  if (returnedModule && returnedModule !== module) {
+    throw new Error(`手动 AI 返回模块不匹配：期望 ${module}，实际 ${returnedModule}`)
+  }
+  await applyManualAiResult(module, result.results)
+  formDataLoaded.value = true
+  ElMessage.success('截图提参已更新')
+}
+
 async function applyFieldData(data: Record<string, any>, fallbackData?: Record<string, any>) {
   // 接口备注与页面生成的 P10 提示分开保存，避免 P10 内容随 remark 回传。
   receivedRemarks.value = normalizeRemarks(data.remark ?? fallbackData?.remark)
@@ -510,11 +676,11 @@ async function applyFieldData(data: Record<string, any>, fallbackData?: Record<s
   delete sourceData.remark
   const stackupList = extractStackupList(data) ?? extractStackupList(fallbackData)
   const impedanceList = extractImpedanceList(data) ?? extractImpedanceList(fallbackData)
-  await applyFieldSourceData(sourceData, (usesCandidateArrays) => {
-    // 新数组协议严格按候选条数展示；材料匹配仅保留旧协议行为。
-    if (!usesCandidateArrays) {
-      applyMaterialPriorityRules()
-    }
+  await applyFieldSourceData(sourceData, () => {
+    // 板材型号只要已经解析出唯一当前值，就按该型号带出种类、品牌、TG、无卤。
+    // 候选数组的选择规则由来源层处理：多个 AI 取第一条、只有 CAM 取 CAM；
+    // AI/CAM 值不一致时保持冲突和空值，因此不会触发材料联动。
+    applyMaterialPriorityRules()
     // 无论新旧提参协议，只有一个铜厚字段有返回值时才补算另一个。
     applyCopperRules(sourceData)
     syncPrevMaterial()
@@ -703,10 +869,43 @@ async function handleQtMessage(event: Event) {
 
   if (rn === 'token' && detail.elecnest_user_info) {
     if (detail.taskId) taskId.value = detail.taskId
-    userToken.value = detail.elecnest_user_info.elecnest_user_token || ''
-    userUid.value = detail.elecnest_user_info.elecnest_user_uid || ''
+    const userInfo = detail.elecnest_user_info
+    userToken.value = userInfo.elecnest_user_token || ''
+    userUid.value = userInfo.elecnest_user_uid || ''
+    userName.value = String(
+      userInfo.elecnest_user_name ??
+      userInfo.elecnest_username ??
+      userInfo.user_name ??
+      userInfo.username ??
+      '',
+    )
     tokenReady.value = Boolean(userToken.value)
     if (!tokenReady.value) ElMessage.error(withErrorSource('QT', '身份验证失败：未获取到有效 Token'))
+    return
+  }
+
+  if (rn === 'getAIPDF') {
+    const module = aiPdfModule.value
+    const requestSequence = aiPdfRequestSequence
+    if (!aiPdfPending.value || !module) {
+      console.warn('[截图提参] 已忽略未匹配的 getAIPDF 消息')
+      return
+    }
+    if (aiPdfProcessing) {
+      console.warn('[截图提参] 已忽略重复的 getAIPDF 消息')
+      return
+    }
+    aiPdfProcessing = true
+    try {
+      if (detail.code !== undefined && Number(detail.code) !== 200) {
+        throw new Error(detail.message || 'Qt 截图失败')
+      }
+      await processScreenshotPdf(module, screenshotPdfBase64(detail), requestSequence)
+    } catch (error: any) {
+      reportError('截图提参', error, error?.message || '截图提参失败')
+    } finally {
+      finishScreenshotParams(requestSequence)
+    }
     return
   }
 
@@ -860,11 +1059,13 @@ const boardStructureContext = {
   sections, stackupRows, stackupScheme, toggleStackupScheme, onMaterialChange,
   queryStackupCuType, queryStackupPpType, queryStackupCoreType, insertStackupRow, addStackupRow,
   impRows, impTypes, layerOptions, refLayerOptions, onControlLayerChange, validateRefLayer, insertImpRow, addImpRow,
+  requestScreenshotParams,
 }
 
 const parameterFormContext = {
   form, sections, opts, conflictMode, displayedRemarks, fieldBgClass, sourceClass, sourceLabel, sourceOptions, showSourceOptionValues, selectSource,
   showGraphicBtn, showDocBtn, handleViewClick,
+  requestScreenshotParams,
   queryLayerCount, onLayerCountBlur, requestPCSSize, requestSetSize, handleSizeBlur, requireClientPanelSeparation,
   onMaterialTypeChange, onMaterialBrandSelect, onMaterialBrandChange, queryMaterialBrand,
   onMaterialVersionSelect, onMaterialVersionChange, queryMaterialVersion, onMaterialTgChange, onMaterialHalogenChange,
@@ -883,6 +1084,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   componentActive = false
+  aiPdfRequestSequence++
+  aiPdfPending.value = false
+  aiPdfModule.value = null
+  aiPdfProcessing = false
   window.removeEventListener('QtMessage', handleQtMessage)
   clearTimers()
   clearQuoteResponseTimer()
@@ -894,10 +1099,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="plugin-a-page">
+  <div class="plugin-a-page" :aria-busy="aiPdfPending">
+    <div v-if="aiPdfPending" class="ai-pdf-lock" aria-label="截图提参处理中"><span class="ai-pdf-lock-spinner"></span></div>
     <div v-if="!formDataLoaded" class="loading-bar"></div>
     <div v-if="formDataLoaded && !tokenReady" class="token-banner">请等待身份验证完成，当前仅可编辑表单...</div>
-    <div class="form-box">
+    <div class="form-box" :inert="aiPdfPending">
       <ParameterForm :context="parameterFormContext" />
 
       <StackupSection :context="boardStructureContext" />

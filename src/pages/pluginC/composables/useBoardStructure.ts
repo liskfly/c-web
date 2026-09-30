@@ -20,6 +20,21 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
   }
   
   const stackupScheme = ref<'normal' | 'alt'>('normal')
+
+  function matchedMaterialType(material: string): string {
+    if (material === 'PP') return currentPpModel.value
+    if (material === 'CORE') return String(form.materialVersion ?? '')
+    return material === 'CU' ? 'HTE' : ''
+  }
+
+  /** 只补空值，接口已返回或用户已填写的叠层类型保持不变。 */
+  function fillMissingStackupMaterialTypes() {
+    stackupRows.value.forEach((row) => {
+      if (!row.pcbMaterialType && (row.material === 'PP' || row.material === 'CORE')) {
+        row.pcbMaterialType = matchedMaterialType(row.material)
+      }
+    })
+  }
   
   function makeCu(outer: boolean): StackupFormRow {
     return { layerName: '', material: 'CU', pcbMaterialType: 'HTE', copperThickness: outer ? outerCuMil() : innerCuMil(), dielectricThickness: null, dk: null }
@@ -29,28 +44,39 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     const rows: StackupFormRow[] = []
     const M1 = scheme === 'normal' ? 'PP' : 'CORE'
     const M2 = scheme === 'normal' ? 'CORE' : 'PP'
-    // PP 行“类型”默认值 = 当前匹配存储的 PP 型号
-    const ppType = (m: string) => m === 'PP' ? currentPpModel.value : ''
+    // PP 行使用匹配后的 PP 型号，CORE 行使用当前板材型号。
+    const materialType = (material: string) => matchedMaterialType(material)
     if (N === 1) {
-      rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
+      rows.push({ layerName: 'L1', material: 'CORE', pcbMaterialType: materialType('CORE'), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
     } else if (N === 2) {
-      rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
+      rows.push(makeCu(true), { layerName: 'L2', material: 'CORE', pcbMaterialType: materialType('CORE'), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
     } else if (N >= 4 && N % 2 === 0) {
       rows.push(makeCu(true))
       for (let i = 0; i < N / 2 - 1; i++) {
-        rows.push({ layerName: '', material: M1, pcbMaterialType: ppType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: ppType(M2), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false))
+        rows.push({ layerName: '', material: M1, pcbMaterialType: materialType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false), { layerName: '', material: M2, pcbMaterialType: materialType(M2), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(false))
       }
-      rows.push({ layerName: '', material: M1, pcbMaterialType: ppType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
+      rows.push({ layerName: '', material: M1, pcbMaterialType: materialType(M1), copperThickness: null, dielectricThickness: null, dk: null }, makeCu(true))
     }
     let cuIdx = 0
     stackupRows.value = rows.map(r => ({ ...r, layerName: r.material === 'CU' ? 'L' + (++cuIdx) : '' }))
   }
   
-  // 匹配到 PP 型号后，给叠层里未填“类型”的 PP 行补默认值
-  watch(currentPpModel, (pp) => {
+  // 型号变化时更新空值，以及仍等于上一自动匹配值的行；手动填写的类型不覆盖。
+  watch(currentPpModel, (pp, previousPp) => {
     if (!pp) return
     stackupRows.value.forEach(r => {
-      if (r.material === 'PP' && !r.pcbMaterialType) r.pcbMaterialType = pp
+      if (r.material === 'PP' && (!r.pcbMaterialType || r.pcbMaterialType === previousPp)) {
+        r.pcbMaterialType = pp
+      }
+    })
+  })
+
+  watch(() => form.materialVersion, (version, previousVersion) => {
+    if (!version) return
+    stackupRows.value.forEach(r => {
+      if (r.material === 'CORE' && (!r.pcbMaterialType || r.pcbMaterialType === previousVersion)) {
+        r.pcbMaterialType = String(version)
+      }
     })
   })
   
@@ -80,10 +106,10 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
     generateImpedance(n)
   }
   
-  function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null }) }
+  function addStackupRow() { const n = stackupRows.value.length + 1; stackupRows.value.push({ layerName: 'L' + n, material: 'PP', pcbMaterialType: matchedMaterialType('PP'), copperThickness: null, dielectricThickness: null, dk: null }) }
   
   function insertStackupRow(index: number) {
-    stackupRows.value.splice(index + 1, 0, { layerName: '', material: 'PP', pcbMaterialType: '', copperThickness: null, dielectricThickness: null, dk: null })
+    stackupRows.value.splice(index + 1, 0, { layerName: '', material: 'PP', pcbMaterialType: matchedMaterialType('PP'), copperThickness: null, dielectricThickness: null, dk: null })
   }
   
   // 材料切换时重置字段：CU 行类型默认 HTE，非 CU 行清空铜厚
@@ -93,6 +119,7 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
       row.dielectricThickness = null
       row.dk = null
     } else {
+      row.pcbMaterialType = matchedMaterialType(row.material)
       row.copperThickness = null
     }
   }
@@ -171,6 +198,7 @@ export function useBoardStructure(form: Record<string, any>, currentPpModel: Ref
 
   function applyStackupRows(input: unknown[]) {
     stackupRows.value = normalizeStackupRows(input)
+    fillMissingStackupMaterialTypes()
   }
 
   return {

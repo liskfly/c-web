@@ -5,12 +5,13 @@ const props = defineProps<{ context: Record<string, any> }>()
 const {
   sections, stackupRows, stackupScheme, toggleStackupScheme, onMaterialChange,
   queryStackupCuType, queryStackupPpType, queryStackupCoreType, insertStackupRow, addStackupRow,
+  requestScreenshotParams,
 } = props.context
 </script>
 
 <template>
 <!-- 四、叠层 -->
-      <div class="section-row" @click="sections.stackup = !sections.stackup" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size: 16px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">四、叠层 <span class="arrow" :class="{ up: sections.stackup }">▼</span></div>
+      <div class="section-row" @click="sections.stackup = !sections.stackup" style="cursor:pointer;background:#f0f4ff;font-weight:600;color:#2756ff;font-size: 16px;padding:8px 10px;border:1px solid #e5e6eb;border-radius:0">四、叠层 <span class="section-title-actions"><button type="button" class="screenshot-params-btn" @click.stop="requestScreenshotParams('Stackup')">截图提参</button><span class="arrow" :class="{ up: sections.stackup }">▼</span></span></div>
       <div v-if="sections.stackup" style="padding:0">
         <div style="padding:4px 0"><button class="btn-add-row" @click="toggleStackupScheme">切换叠构({{ stackupScheme === 'normal' ? 'PP→Core' : 'Core→PP' }})</button></div>
         <el-table :data="stackupRows" size="small" border style="width:100%">
